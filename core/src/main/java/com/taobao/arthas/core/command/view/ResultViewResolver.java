@@ -44,6 +44,7 @@ public class ResultViewResolver {
             registerView(SystemPropertyView.class);
             registerView(SystemEnvView.class);
             registerView(PwdView.class);
+            registerView(TimeView.class);
             registerView(VMOptionView.class);
             registerView(SessionView.class);
             registerView(ResetView.class);

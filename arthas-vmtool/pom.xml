@@ -113,6 +113,8 @@
                 <os_arch_option>-m64</os_arch_option>
                 <lib_name>libArthasJniLibrary-x64.dll</lib_name>
             </properties>
+            <!-- Native build disabled for Windows -->
+            <!--
             <build>
                 <plugins>
 
@@ -156,7 +158,6 @@
                                 <linkerStartOption>-fpic</linkerStartOption>
                                 <linkerStartOption>-shared</linkerStartOption>
                                 <linkerStartOption>-o</linkerStartOption>
-                                <!-- for windows #1833 -->
                                 <linkerStartOption>-static-libstdc++</linkerStartOption>
                                 <linkerStartOption>-static</linkerStartOption>
                             </linkerStartOptions>
@@ -178,6 +179,7 @@
                     </plugin>
                 </plugins>
             </build>
+            -->
         </profile>
 
     </profiles>
@@ -202,6 +204,8 @@
                 <artifactId>maven-jar-plugin</artifactId>
                 <version>2.4</version>
             </plugin>
+            <!-- Native plugin disabled for Windows build -->
+            <!--
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>native-maven-plugin</artifactId>
@@ -240,7 +244,6 @@
                         <linkerStartOption>${os_arch_option}</linkerStartOption>
                         <linkerStartOption>-fpic</linkerStartOption>
                         <linkerStartOption>-shared</linkerStartOption>
-                        <!-- <linkerStartOption>-o</linkerStartOption> -->
                     </linkerStartOptions>
                     <linkerEndOptions>
                         <linkerEndOption>-o ${project.build.directory}/${lib_name}</linkerEndOption>
@@ -249,7 +252,7 @@
                 <executions>
                     <execution>
                         <id>compile-and-link</id>
-                        <phase>compile</phase>
+                        <phase>none</phase>
                         <goals>
                             <goal>initialize</goal>
                             <goal>compile</goal>
@@ -258,6 +261,7 @@
                     </execution>
                 </executions>
             </plugin>
+            -->
         </plugins>
     </build>
 

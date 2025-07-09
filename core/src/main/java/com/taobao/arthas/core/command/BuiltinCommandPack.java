@@ -105,6 +105,7 @@ public class BuiltinCommandPack implements CommandResolver {
         commandClassList.add(ProfilerCommand.class);
         commandClassList.add(VmToolCommand.class);
         commandClassList.add(StopCommand.class);
+        commandClassList.add(TimeCommand.class);
         try {
             if (ClassLoader.getSystemClassLoader().getResource("jdk/jfr/Recording.class") != null) {
                 commandClassList.add(JFRCommand.class);
