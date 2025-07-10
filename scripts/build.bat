@@ -28,8 +28,8 @@ REM Step 2: Build Project
 echo [Step 2/2] Building Arthas project...
 cd /d "%ARTHAS_HOME%"
 
-echo Executing: mvnw clean install -DskipTests -pl common,spy,core,agent,client,boot,packaging -am
-call mvnw.cmd clean install -DskipTests -pl common,spy,core,agent,client,boot,packaging -am
+echo Executing: mvnw clean install -DskipTests -pl common,spy,core,agent,client,boot,packaging
+call mvnw.cmd clean install -DskipTests -pl common,spy,core,agent,client,boot,packaging
 if errorlevel 1 (
     echo ERROR: Project build failed
     exit /b 1
