@@ -1,0 +1,109 @@
+{
+  "name": "HTTP Client探针",
+  "description": "监控出站HTTP请求",
+  "enabled": true,
+  "targets": [
+    {
+      "class": "org.apache.http.impl.client.CloseableHttpClient",
+      "methods": ["execute"]
+    },
+    {
+      "class": "okhttp3.Call",
+      "methods": ["execute"]
+    },
+    {
+      "class": "org.springframework.web.client.RestTemplate",
+      "methods": ["exchange", "getForObject", "getForEntity", "postForObject", "postForEntity"]
+    },
+    {
+      "class": "java.net.http.HttpClient",
+      "methods": ["send"]
+    }
+  ],
+  "metrics": [
+    {
+      "name": "method",
+      "description": "HTTP请求方法",
+      "source": "args[0].getMethod != null ? args[0].getMethod() : (args[0].request != null ? args[0].request().method() : 'HTTP')",
+      "type": "string"
+    },
+    {
+      "name": "url",
+      "description": "请求URL",
+      "source": "args[0].getURI != null ? args[0].getURI().toString() : (args[0].request != null ? args[0].request().url().toString() : 'Unknown')",
+      "type": "string"
+    },
+    {
+      "name": "host",
+      "description": "目标主机",
+      "source": "args[0].getURI != null ? args[0].getURI().getHost() : (args[0].request != null ? args[0].request().url().host() : 'Unknown')",
+      "type": "string"
+    },
+    {
+      "name": "executionTime",
+      "description": "请求执行耗时",
+      "source": "executionTime",
+      "type": "long",
+      "unit": "milliseconds"
+    },
+    {
+      "name": "status",
+      "description": "响应状态码",
+      "source": "returnValue.getStatusLine != null ? returnValue.getStatusLine().getStatusCode() : (returnValue.code != null ? returnValue.code() : -1)",
+      "type": "integer"
+    },
+    {
+      "name": "responseSize",
+      "description": "响应大小",
+      "source": "returnValue.getEntity != null ? returnValue.getEntity().getContentLength() : (returnValue.body != null ? returnValue.body().contentLength() : -1)",
+      "type": "long",
+      "unit": "bytes"
+    },
+    {
+      "name": "isSuccess",
+      "description": "是否成功响应",
+      "source": "status >= 200 && status < 300",
+      "type": "boolean"
+    },
+    {
+      "name": "isError",
+      "description": "是否错误响应",
+      "source": "status >= 400",
+      "type": "boolean"
+    },
+    {
+      "name": "isSlowRequest",
+      "description": "是否为慢请求",
+      "source": "executionTime > 2000",
+      "type": "boolean"
+    },
+    {
+      "name": "hasException",
+      "description": "是否发生异常",
+      "source": "exception != null",
+      "type": "boolean"
+    },
+    {
+      "name": "exceptionMessage",
+      "description": "异常信息",
+      "source": "exception != null ? exception.getMessage() : null",
+      "type": "string"
+    },
+    {
+      "name": "contentType",
+      "description": "响应内容类型",
+      "source": "returnValue.getFirstHeader != null ? returnValue.getFirstHeader('Content-Type').getValue() : 'Unknown'",
+      "type": "string"
+    }
+  ],
+  "output": {
+    "type": "HTTP_CLIENT",
+    "template": "${method} ${url} -> ${status} | Time: ${executionTime}ms | Size: ${responseSize}B${isError ? ' [ERROR]' : ''}${isSlowRequest ? ' [SLOW]' : ''}"
+  },
+  "filters": [
+    {
+      "name": "排除健康检查请求",
+      "condition": "!url.contains('/health') && !url.contains('/ping') && !url.contains('/actuator')"
+    }
+  ]
+}

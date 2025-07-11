@@ -1,0 +1,112 @@
+{
+  "name": "HTTP Server探针",
+  "description": "监控HTTP请求的接收和处理",
+  "enabled": true,
+  "metrics": [
+    {
+      "name": "method",
+      "description": "HTTP请求方法",
+      "targets": [
+        {
+          "class": "javax.servlet.http.HttpServlet",
+          "methods": ["service", "doGet", "doPost", "doPut", "doDelete"]
+        }
+      ],
+      "source": "args[0].getMethod()",
+      "type": "string"
+    },
+    {
+      "name": "url",
+      "description": "请求URL",
+      "targets": [
+        {
+          "class": "javax.servlet.http.HttpServlet",
+          "methods": ["service", "doGet", "doPost", "doPut", "doDelete"]
+        },
+        {
+          "class": "*",
+          "classAnnotation": "@org.springframework.stereotype.Controller",
+          "methods": ["*"],
+          "methodAnnotation": "@org.springframework.web.bind.annotation.*Mapping"
+        }
+      ],
+      "source": "args[0].getRequestURL().toString()",
+      "type": "string"
+    },
+    {
+      "name": "status",
+      "description": "响应状态码",
+      "targets": [
+        {
+          "class": "javax.servlet.http.HttpServlet",
+          "methods": ["service", "doGet", "doPost", "doPut", "doDelete"]
+        }
+      ],
+      "source": "args[1].getStatus()",
+      "type": "integer"
+    },
+    {
+      "name": "executionTime",
+      "description": "请求处理耗时",
+      "source": "executionTime",
+      "type": "long",
+      "unit": "milliseconds"
+    },
+    {
+      "name": "clientIp",
+      "description": "客户端IP",
+      "source": "args[0].getRemoteAddr()",
+      "type": "string"
+    },
+    {
+      "name": "userAgent",
+      "description": "用户代理",
+      "source": "args[0].getHeader('User-Agent')",
+      "type": "string"
+    },
+    {
+      "name": "contentType",
+      "description": "响应内容类型",
+      "source": "args[1].getContentType()",
+      "type": "string"
+    },
+    {
+      "name": "isError",
+      "description": "是否为错误响应",
+      "source": "status >= 400",
+      "type": "boolean"
+    },
+    {
+      "name": "isSlowRequest",
+      "description": "是否为慢请求",
+      "source": "executionTime > 1000",
+      "type": "boolean"
+    },
+    {
+      "name": "hasException",
+      "description": "是否发生异常",
+      "source": "exception != null",
+      "type": "boolean"
+    },
+    {
+      "name": "sessionId",
+      "description": "会话ID",
+      "source": "args[0].getSession(false) != null ? args[0].getSession().getId() : null",
+      "type": "string"
+    }
+  ],
+  "output": {
+    "type": "HTTP",
+    "template": "${method} ${url} -> ${status} (${executionTime}ms)${isError ? ' [ERROR]' : ''}${isSlowRequest ? ' [SLOW]' : ''}"
+  },
+  "filters": [
+    {
+      "name": "排除静态资源",
+      "condition": "!url.matches('.*\\\\.(css|js|png|jpg|jpeg|gif|ico|woff|woff2)$')"
+    },
+    {
+      "name": "排除健康检查",
+      "condition": "!url.contains('/health') && !url.contains('/actuator')"
+    }
+  ]
+}

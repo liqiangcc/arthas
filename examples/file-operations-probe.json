@@ -1,0 +1,230 @@
+{
+  "name": "File Operations探针",
+  "description": "监控文件读写操作",
+  "enabled": true,
+  "metrics": [
+    {
+      "name": "filePath",
+      "description": "文件路径",
+      "targets": [
+        {
+          "class": "java.io.FileInputStream",
+          "methods": ["<init>"]
+        },
+        {
+          "class": "java.io.FileOutputStream",
+          "methods": ["<init>"]
+        },
+        {
+          "class": "java.io.RandomAccessFile",
+          "methods": ["<init>"]
+        },
+        {
+          "class": "java.nio.file.Files",
+          "methods": ["readAllBytes", "readAllLines", "write", "writeString"]
+        }
+      ],
+      "source": "args[0] instanceof String ? args[0] : (args[0] instanceof java.io.File ? args[0].getAbsolutePath() : args[0].toString())",
+      "type": "string"
+    },
+    {
+      "name": "fileName",
+      "description": "文件名",
+      "formula": "metrics.filePath.substring(metrics.filePath.lastIndexOf('/') + 1)",
+      "type": "string"
+    },
+    {
+      "name": "fileDirectory",
+      "description": "文件目录",
+      "formula": "metrics.filePath.substring(0, Math.max(0, metrics.filePath.lastIndexOf('/')))",
+      "type": "string"
+    },
+    {
+      "name": "startTime",
+      "description": "操作开始时间",
+      "targets": [
+        {
+          "class": "java.io.FileInputStream",
+          "methods": ["read"]
+        },
+        {
+          "class": "java.io.FileOutputStream",
+          "methods": ["write"]
+        },
+        {
+          "class": "java.nio.file.Files",
+          "methods": ["readAllBytes", "readAllLines", "write", "writeString"]
+        }
+      ],
+      "source": "startTime",
+      "type": "long",
+      "capturePoint": "before"
+    },
+    {
+      "name": "endTime",
+      "description": "操作结束时间",
+      "targets": [
+        {
+          "class": "java.io.FileInputStream",
+          "methods": ["read"]
+        },
+        {
+          "class": "java.io.FileOutputStream",
+          "methods": ["write"]
+        },
+        {
+          "class": "java.nio.file.Files",
+          "methods": ["readAllBytes", "readAllLines", "write", "writeString"]
+        }
+      ],
+      "source": "endTime",
+      "type": "long",
+      "capturePoint": "after"
+    },
+    {
+      "name": "executionTime",
+      "description": "文件操作耗时",
+      "formula": "metrics.endTime - metrics.startTime",
+      "type": "long",
+      "unit": "milliseconds"
+    },
+    {
+      "name": "methodName",
+      "description": "方法名称",
+      "targets": [
+        {
+          "class": "java.io.FileInputStream",
+          "methods": ["read"]
+        },
+        {
+          "class": "java.io.FileOutputStream",
+          "methods": ["write"]
+        },
+        {
+          "class": "java.nio.file.Files",
+          "methods": ["readAllBytes", "readAllLines", "write", "writeString"]
+        }
+      ],
+      "source": "method.getName()",
+      "type": "string"
+    },
+    {
+      "name": "operationType",
+      "description": "操作类型",
+      "formula": "metrics.methodName.contains('read') || metrics.methodName.contains('Read') ? 'READ' : 'WRITE'",
+      "type": "string"
+    },
+    {
+      "name": "dataSize",
+      "description": "数据大小",
+      "targets": [
+        {
+          "class": "java.io.FileInputStream",
+          "methods": ["read"]
+        },
+        {
+          "class": "java.io.FileOutputStream",
+          "methods": ["write"]
+        },
+        {
+          "class": "java.nio.file.Files",
+          "methods": ["readAllBytes", "readAllLines", "write", "writeString"]
+        }
+      ],
+      "source": "returnValue instanceof byte[] ? ((byte[])returnValue).length : (args.length > 1 && args[1] instanceof byte[] ? ((byte[])args[1]).length : -1)",
+      "type": "long",
+      "unit": "bytes"
+    },
+    {
+      "name": "isLargeFile",
+      "description": "是否为大文件操作",
+      "formula": "metrics.dataSize > 1048576",
+      "type": "boolean"
+    },
+    {
+      "name": "isSlowOperation",
+      "description": "是否为慢操作",
+      "formula": "metrics.executionTime > 100",
+      "type": "boolean"
+    },
+    {
+      "name": "throughput",
+      "description": "文件操作吞吐量",
+      "formula": "metrics.dataSize > 0 && metrics.executionTime > 0 ? (metrics.dataSize / (metrics.executionTime / 1000.0)) : 0",
+      "type": "double",
+      "unit": "bytes/second"
+    },
+    {
+      "name": "hasException",
+      "description": "是否发生异常",
+      "targets": [
+        {
+          "class": "java.io.FileInputStream",
+          "methods": ["read"]
+        },
+        {
+          "class": "java.io.FileOutputStream",
+          "methods": ["write"]
+        },
+        {
+          "class": "java.nio.file.Files",
+          "methods": ["readAllBytes", "readAllLines", "write", "writeString"]
+        }
+      ],
+      "source": "exception != null",
+      "type": "boolean"
+    },
+    {
+      "name": "exceptionMessage",
+      "description": "异常信息",
+      "targets": [
+        {
+          "class": "java.io.FileInputStream",
+          "methods": ["read"]
+        },
+        {
+          "class": "java.io.FileOutputStream",
+          "methods": ["write"]
+        },
+        {
+          "class": "java.nio.file.Files",
+          "methods": ["readAllBytes", "readAllLines", "write", "writeString"]
+        }
+      ],
+      "source": "exception != null ? exception.getMessage() : null",
+      "type": "string"
+    },
+    {
+      "name": "fileExtension",
+      "description": "文件扩展名",
+      "formula": "metrics.fileName.contains('.') ? metrics.fileName.substring(metrics.fileName.lastIndexOf('.') + 1).toLowerCase() : ''",
+      "type": "string"
+    },
+    {
+      "name": "isConfigFile",
+      "description": "是否为配置文件",
+      "formula": "metrics.fileExtension in ['properties', 'yml', 'yaml', 'xml', 'json', 'conf']",
+      "type": "boolean"
+    },
+    {
+      "name": "isLogFile",
+      "description": "是否为日志文件",
+      "formula": "metrics.fileExtension in ['log', 'out', 'err'] || metrics.fileName.contains('log')",
+      "type": "boolean"
+    }
+  ],
+  "output": {
+    "type": "FILE_${operationType}",
+    "template": "[${operationType}] ${filePath} | Time: ${executionTime}ms | Size: ${dataSize}B${isSlowOperation ? ' [SLOW]' : ''}${hasException ? ' [ERROR]' : ''}"
+  },
+  "filters": [
+    {
+      "name": "排除临时文件",
+      "condition": "!metrics.fileName.startsWith('.') && !metrics.fileName.endsWith('.tmp')"
+    },
+    {
+      "name": "排除系统文件",
+      "condition": "!metrics.filePath.startsWith('/proc') && !metrics.filePath.startsWith('/sys')"
+    }
+  ]
+}

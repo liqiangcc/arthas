@@ -1,0 +1,149 @@
+{
+  "name": "Database探针",
+  "description": "监控JDBC数据库操作",
+  "enabled": true,
+  "metrics": [
+    {
+      "name": "sql",
+      "description": "执行的SQL语句",
+      "targets": [
+        {
+          "class": "java.sql.PreparedStatement",
+          "methods": ["execute", "executeQuery", "executeUpdate", "executeBatch"]
+        },
+        {
+          "class": "java.sql.Statement",
+          "methods": ["execute", "executeQuery", "executeUpdate", "executeBatch"]
+        }
+      ],
+      "source": "this.toString()",
+      "type": "string",
+      "capturePoint": "before"
+    },
+    {
+      "name": "startTime",
+      "description": "SQL开始执行时间",
+      "targets": [
+        {
+          "class": "java.sql.PreparedStatement",
+          "methods": ["execute", "executeQuery", "executeUpdate", "executeBatch"]
+        }
+      ],
+      "source": "startTime",
+      "type": "long",
+      "unit": "milliseconds",
+      "capturePoint": "before"
+    },
+    {
+      "name": "endTime",
+      "description": "SQL结束执行时间",
+      "targets": [
+        {
+          "class": "java.sql.PreparedStatement",
+          "methods": ["execute", "executeQuery", "executeUpdate", "executeBatch"]
+        }
+      ],
+      "source": "endTime",
+      "type": "long",
+      "unit": "milliseconds",
+      "capturePoint": "after"
+    },
+    {
+      "name": "executionTime",
+      "description": "SQL执行耗时",
+      "formula": "metrics.endTime - metrics.startTime",
+      "type": "long",
+      "unit": "milliseconds"
+    },
+    {
+      "name": "affectedRows",
+      "description": "影响的行数",
+      "targets": [
+        {
+          "class": "java.sql.PreparedStatement",
+          "methods": ["executeUpdate", "executeBatch"]
+        },
+        {
+          "class": "java.sql.Statement",
+          "methods": ["executeUpdate", "executeBatch"]
+        }
+      ],
+      "source": "returnValue instanceof Integer ? returnValue : (returnValue instanceof java.sql.ResultSet ? -1 : 0)",
+      "type": "integer",
+      "capturePoint": "after"
+    },
+    {
+      "name": "rawSql",
+      "description": "原始SQL语句",
+      "targets": [
+        {
+          "class": "java.sql.PreparedStatement",
+          "methods": ["execute", "executeQuery", "executeUpdate"]
+        }
+      ],
+      "source": "this.toString()",
+      "type": "string"
+    },
+    {
+      "name": "operationType",
+      "description": "SQL操作类型",
+      "formula": "metrics.rawSql.toUpperCase().trim().split('\\\\s+')[0]",
+      "type": "string"
+    },
+    {
+      "name": "isSlowQuery",
+      "description": "是否为慢查询",
+      "formula": "metrics.executionTime > 1000",
+      "type": "boolean"
+    },
+    {
+      "name": "performanceLevel",
+      "description": "性能等级",
+      "formula": "metrics.executionTime < 100 ? 'FAST' : (metrics.executionTime < 1000 ? 'NORMAL' : 'SLOW')",
+      "type": "string"
+    },
+    {
+      "name": "queryEfficiency",
+      "description": "查询效率分数",
+      "formula": "Math.max(0, 100 - (metrics.executionTime / 10))",
+      "type": "double",
+      "unit": "score"
+    },
+    {
+      "name": "hasException",
+      "description": "是否发生异常",
+      "targets": [
+        {
+          "class": "java.sql.PreparedStatement",
+          "methods": ["execute", "executeQuery", "executeUpdate"]
+        }
+      ],
+      "source": "exception != null",
+      "type": "boolean",
+      "capturePoint": "after"
+    },
+    {
+      "name": "connectionUrl",
+      "description": "数据库连接URL",
+      "targets": [
+        {
+          "class": "java.sql.Connection",
+          "methods": ["prepareStatement", "createStatement"]
+        }
+      ],
+      "source": "this.getMetaData().getURL()",
+      "type": "string",
+      "capturePoint": "before"
+    }
+  ],
+  "output": {
+    "type": "DATABASE",
+    "template": "[${operationType}] ${sql} | Time: ${executionTime}ms | Rows: ${affectedRows}${hasException ? ' | ERROR: ' + exceptionMessage : ''}"
+  },
+  "filters": [
+    {
+      "name": "排除系统查询",
+      "condition": "!sql.toUpperCase().contains('INFORMATION_SCHEMA') && !sql.toUpperCase().contains('SYS.')"
+    }
+  ]
+}
