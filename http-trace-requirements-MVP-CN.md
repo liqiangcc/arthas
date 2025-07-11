@@ -595,22 +595,431 @@ arthas-core.jar
 
 ---
 
-## 5. 实现优先级
+## 5. Source和Formula表达式解析设计
+
+### 5.1 解析器架构设计
+
+#### 5.1.1 整体架构
+```
+ExpressionEngine
+├── SourceExpressionParser     # Source表达式解析器
+├── FormulaExpressionParser    # Formula表达式解析器
+├── ExecutionContext          # 执行上下文
+└── MetricsContext            # 指标上下文
+```
+
+#### 5.1.2 核心接口设计
+```java
+public interface ExpressionParser {
+    Object parse(String expression, Context context);
+    boolean supports(String expression);
+    Set<String> getDependencies(String expression);
+}
+
+public interface Context {
+    Object getValue(String key);
+    void setValue(String key, Object value);
+    Map<String, Object> getAllValues();
+}
+```
+
+### 5.2 Source表达式解析器
+
+#### 5.2.1 设计原则
+- **数据来源固定**: 仅从方法调用上下文提取数据
+- **语法简单**: 支持属性访问、方法调用、条件判断
+- **性能优先**: 轻量级解析，避免复杂计算
+- **安全可控**: 限制可访问的对象和方法
+
+#### 5.2.2 支持的表达式类型
+```java
+public enum SourceExpressionType {
+    BUILTIN_VARIABLE,    // startTime, endTime, threadName
+    PROPERTY_ACCESS,     // this.connection, args[0].method
+    METHOD_CALL,         // this.toString(), args[0].getValue()
+    CONDITIONAL,         // exception != null ? 'ERROR' : 'OK'
+    ARRAY_ACCESS,        // args[0], args[1]
+    TYPE_CHECK          // returnValue instanceof Integer
+}
+```
+
+#### 5.2.3 解析器实现
+```java
+public class SourceExpressionParser implements ExpressionParser {
+    private static final Pattern BUILTIN_PATTERN = Pattern.compile("^(startTime|endTime|executionTime|threadName)$");
+    private static final Pattern PROPERTY_PATTERN = Pattern.compile("^(this|args\\[\\d+\\]|returnValue|exception|method)\\.\\w+");
+
+    @Override
+    public Object parse(String expression, Context context) {
+        // 1. 内置变量
+        if (BUILTIN_PATTERN.matcher(expression).matches()) {
+            return parseBuiltinVariable(expression, context);
+        }
+
+        // 2. 属性访问
+        if (PROPERTY_PATTERN.matcher(expression).find()) {
+            return parsePropertyAccess(expression, context);
+        }
+
+        // 3. 条件表达式
+        if (expression.contains("?")) {
+            return parseConditional(expression, context);
+        }
+
+        // 4. 使用OGNL作为后备解析器
+        return parseWithOGNL(expression, context);
+    }
+
+    private Object parseBuiltinVariable(String variable, Context context) {
+        switch (variable) {
+            case "startTime": return context.getValue("startTime");
+            case "endTime": return context.getValue("endTime");
+            case "executionTime": return context.getValue("executionTime");
+            case "threadName": return context.getValue("threadName");
+            default: throw new UnsupportedExpressionException(variable);
+        }
+    }
+
+    private Object parsePropertyAccess(String expression, Context context) {
+        // 解析 this.toString(), args[0].getValue() 等
+        String[] parts = expression.split("\\.");
+        Object target = resolveTarget(parts[0], context);
+
+        for (int i = 1; i < parts.length; i++) {
+            target = resolveProperty(target, parts[i]);
+        }
+
+        return target;
+    }
+}
+```
+
+#### 5.2.4 执行上下文
+```java
+public class ExecutionContext implements Context {
+    private final Object targetObject;
+    private final Object[] args;
+    private final Method method;
+    private final Object returnValue;
+    private final Throwable exception;
+    private final long startTime;
+    private final long endTime;
+    private final String threadName;
+
+    @Override
+    public Object getValue(String key) {
+        switch (key) {
+            case "this": return targetObject;
+            case "args": return args;
+            case "method": return method;
+            case "returnValue": return returnValue;
+            case "exception": return exception;
+            case "startTime": return startTime;
+            case "endTime": return endTime;
+            case "threadName": return threadName;
+            default: return null;
+        }
+    }
+}
+```
+
+### 5.3 Formula表达式解析器
+
+#### 5.3.1 设计原则
+- **功能强大**: 支持复杂的数学计算和逻辑判断
+- **类型安全**: 基于已知指标类型进行计算
+- **依赖管理**: 自动解析指标间的依赖关系
+- **性能优化**: 表达式缓存和预编译
+
+#### 5.3.2 解析策略
+```java
+public class FormulaExpressionParser implements ExpressionParser {
+    private final SimpleExpressionParser simpleParser;
+    private final JavaScriptEngine jsEngine;
+    private final Map<String, CompiledExpression> cache;
+
+    @Override
+    public Object parse(String formula, Context context) {
+        // 1. 检查缓存
+        CompiledExpression compiled = cache.get(formula);
+        if (compiled == null) {
+            compiled = compile(formula);
+            cache.put(formula, compiled);
+        }
+
+        // 2. 执行表达式
+        return compiled.evaluate(context);
+    }
+
+    private CompiledExpression compile(String formula) {
+        // 1. 尝试简单表达式解析
+        if (isSimpleArithmetic(formula)) {
+            return new SimpleCompiledExpression(formula);
+        }
+
+        // 2. 使用JavaScript引擎编译
+        return new JavaScriptCompiledExpression(formula, jsEngine);
+    }
+
+    private boolean isSimpleArithmetic(String formula) {
+        // 检查是否为简单的算术表达式
+        return formula.matches("metrics\\.[a-zA-Z_]\\w*(\\s*[+\\-*/]\\s*metrics\\.[a-zA-Z_]\\w*)*");
+    }
+}
+```
+
+#### 5.3.3 简单表达式优化
+```java
+public class SimpleExpressionParser {
+    public Object parse(String formula, MetricsContext context) {
+        // 处理简单的算术表达式: metrics.endTime - metrics.startTime
+        Pattern pattern = Pattern.compile("metrics\\.([a-zA-Z_]\\w*)");
+        Matcher matcher = pattern.matcher(formula);
+
+        String expression = formula;
+        while (matcher.find()) {
+            String metricName = matcher.group(1);
+            Object value = context.getMetric(metricName);
+            expression = expression.replace(matcher.group(0), String.valueOf(value));
+        }
+
+        return evaluateArithmetic(expression);
+    }
+
+    private Object evaluateArithmetic(String expression) {
+        // 使用简单的算术解析器
+        return new ArithmeticEvaluator().evaluate(expression);
+    }
+}
+```
+
+#### 5.3.4 JavaScript引擎集成
+```java
+public class JavaScriptFormulaEngine {
+    private final ScriptEngine engine;
+
+    public JavaScriptFormulaEngine() {
+        ScriptEngineManager manager = new ScriptEngineManager();
+        engine = manager.getEngineByName("javascript");
+
+        // 预加载常用函数
+        try {
+            engine.eval("var Math = Java.type('java.lang.Math');");
+            engine.eval("function safe(obj, defaultValue) { return obj != null ? obj : defaultValue; }");
+        } catch (ScriptException e) {
+            throw new RuntimeException("Failed to initialize JavaScript engine", e);
+        }
+    }
+
+    public Object evaluate(String formula, MetricsContext context) {
+        try {
+            engine.put("metrics", context.getAllMetrics());
+            return engine.eval(formula);
+        } catch (ScriptException e) {
+            throw new FormulaEvaluationException("Formula evaluation failed: " + formula, e);
+        }
+    }
+}
+```
+
+### 5.4 指标上下文管理
+
+#### 5.4.1 MetricsContext设计
+```java
+public class MetricsContext implements Context {
+    private final Map<String, Object> metrics = new LinkedHashMap<>();
+    private final Map<String, MetricConfig> configs = new HashMap<>();
+
+    public void addMetric(String name, Object value, MetricConfig config) {
+        metrics.put(name, value);
+        configs.put(name, config);
+    }
+
+    public Object getMetric(String name) {
+        return metrics.get(name);
+    }
+
+    public Map<String, Object> getAllMetrics() {
+        return Collections.unmodifiableMap(metrics);
+    }
+
+    public boolean hasMetric(String name) {
+        return metrics.containsKey(name);
+    }
+}
+```
+
+#### 5.4.2 依赖解析器
+```java
+public class DependencyResolver {
+    public List<MetricConfig> resolveDependencies(List<MetricConfig> metrics) {
+        Map<String, MetricConfig> metricMap = metrics.stream()
+            .collect(Collectors.toMap(MetricConfig::getName, Function.identity()));
+
+        List<MetricConfig> resolved = new ArrayList<>();
+        Set<String> processing = new HashSet<>();
+        Set<String> processed = new HashSet<>();
+
+        for (MetricConfig metric : metrics) {
+            resolveDependency(metric, metricMap, resolved, processing, processed);
+        }
+
+        return resolved;
+    }
+
+    private void resolveDependency(MetricConfig metric, Map<String, MetricConfig> metricMap,
+                                 List<MetricConfig> resolved, Set<String> processing, Set<String> processed) {
+        if (processed.contains(metric.getName())) {
+            return;
+        }
+
+        if (processing.contains(metric.getName())) {
+            throw new CircularDependencyException("Circular dependency detected: " + metric.getName());
+        }
+
+        processing.add(metric.getName());
+
+        // 解析依赖
+        Set<String> dependencies = extractDependencies(metric);
+        for (String dep : dependencies) {
+            MetricConfig depMetric = metricMap.get(dep);
+            if (depMetric != null) {
+                resolveDependency(depMetric, metricMap, resolved, processing, processed);
+            }
+        }
+
+        processing.remove(metric.getName());
+        processed.add(metric.getName());
+        resolved.add(metric);
+    }
+
+    private Set<String> extractDependencies(MetricConfig metric) {
+        if (metric.getFormula() != null) {
+            return extractFromFormula(metric.getFormula());
+        }
+        return Collections.emptySet();
+    }
+
+    private Set<String> extractFromFormula(String formula) {
+        Set<String> dependencies = new HashSet<>();
+        Pattern pattern = Pattern.compile("metrics\\.([a-zA-Z_]\\w*)");
+        Matcher matcher = pattern.matcher(formula);
+
+        while (matcher.find()) {
+            dependencies.add(matcher.group(1));
+        }
+
+        return dependencies;
+    }
+}
+```
+
+### 5.5 性能优化策略
+
+#### 5.5.1 表达式缓存
+```java
+public class CachedExpressionEngine {
+    private final Map<String, CompiledExpression> sourceCache = new ConcurrentHashMap<>();
+    private final Map<String, CompiledExpression> formulaCache = new ConcurrentHashMap<>();
+
+    public Object evaluateSource(String source, ExecutionContext context) {
+        CompiledExpression compiled = sourceCache.computeIfAbsent(source, this::compileSource);
+        return compiled.evaluate(context);
+    }
+
+    public Object evaluateFormula(String formula, MetricsContext context) {
+        CompiledExpression compiled = formulaCache.computeIfAbsent(formula, this::compileFormula);
+        return compiled.evaluate(context);
+    }
+}
+```
+
+#### 5.5.2 类型优化
+```java
+public class TypedExpressionEvaluator {
+    public <T> T evaluate(String expression, Context context, Class<T> expectedType) {
+        Object result = baseEvaluate(expression, context);
+        return convertType(result, expectedType);
+    }
+
+    @SuppressWarnings("unchecked")
+    private <T> T convertType(Object value, Class<T> targetType) {
+        if (value == null) return null;
+        if (targetType.isInstance(value)) return (T) value;
+
+        // 类型转换逻辑
+        if (targetType == Long.class && value instanceof Number) {
+            return (T) Long.valueOf(((Number) value).longValue());
+        }
+        // ... 其他类型转换
+
+        throw new TypeConversionException("Cannot convert " + value.getClass() + " to " + targetType);
+    }
+}
+```
+
+### 5.6 错误处理和安全性
+
+#### 5.6.1 安全限制
+```java
+public class SecurityManager {
+    private static final Set<String> ALLOWED_CLASSES = Set.of(
+        "java.lang.String", "java.lang.Integer", "java.lang.Long",
+        "java.lang.Double", "java.lang.Boolean", "java.lang.Math"
+    );
+
+    private static final Set<String> FORBIDDEN_METHODS = Set.of(
+        "getClass", "notify", "notifyAll", "wait", "finalize"
+    );
+
+    public boolean isAllowedAccess(String className, String methodName) {
+        return ALLOWED_CLASSES.contains(className) && !FORBIDDEN_METHODS.contains(methodName);
+    }
+}
+```
+
+#### 5.6.2 错误处理
+```java
+public class ExpressionException extends RuntimeException {
+    private final String expression;
+    private final int position;
+
+    public ExpressionException(String message, String expression, int position, Throwable cause) {
+        super(formatMessage(message, expression, position), cause);
+        this.expression = expression;
+        this.position = position;
+    }
+
+    private static String formatMessage(String message, String expression, int position) {
+        return String.format("%s at position %d in expression: %s", message, position, expression);
+    }
+}
+```
+
+---
+
+## 6. 实现优先级
 
 ### P0 (必须实现)
 - 基本的trace-flow命令和URL匹配
 - 配置文件解析和加载机制
+- **Source表达式解析器** (支持内置变量、属性访问、简单条件)
+- **Formula表达式解析器** (支持基础算术运算和JavaScript引擎)
 - HTTP Server + Database探针配置
 - 控制台树状输出
 - 基础指标和计算指标支持
 
 ### P1 (重要)
 - HTTP Client + File Operations探针配置
+- **表达式缓存和性能优化**
+- **依赖解析和循环检测**
 - 基础过滤功能（基于计算指标）
 - JSON文件输出
 - 指标级别targets支持
 
 ### P2 (可选)
+- **高级表达式功能** (复杂条件、自定义函数)
+- **表达式安全限制和沙箱**
 - 堆栈跟踪功能
 - 详细模式输出
 - 用户自定义配置文件支持
