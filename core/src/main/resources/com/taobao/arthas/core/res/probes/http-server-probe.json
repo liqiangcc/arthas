@@ -1,0 +1,65 @@
+{
+  "name": "HTTP Server探针",
+  "description": "监控HTTP请求的接收和处理",
+  "enabled": true,
+  "metrics": [
+    {
+      "name": "startTime",
+      "description": "请求开始时间",
+      "targets": [
+        {
+          "className": "javax.servlet.http.HttpServlet",
+          "methods": ["service"]
+        }
+      ],
+      "source": "startTime",
+      "type": "long",
+      "unit": "milliseconds",
+      "capturePoint": "before"
+    },
+    {
+      "name": "endTime",
+      "description": "请求结束时间",
+      "targets": [
+        {
+          "className": "javax.servlet.http.HttpServlet",
+          "methods": ["service"]
+        }
+      ],
+      "source": "endTime",
+      "type": "long",
+      "unit": "milliseconds",
+      "capturePoint": "after"
+    },
+    {
+      "name": "executionTime",
+      "description": "请求处理耗时",
+      "formula": "metrics.endTime - metrics.startTime",
+      "type": "long",
+      "unit": "milliseconds"
+    },
+    {
+      "name": "threadName",
+      "description": "处理线程名称",
+      "targets": [
+        {
+          "className": "javax.servlet.http.HttpServlet",
+          "methods": ["service"]
+        }
+      ],
+      "source": "threadName",
+      "type": "string",
+      "capturePoint": "before"
+    }
+  ],
+  "output": {
+    "type": "HTTP",
+    "template": "[HTTP] Time: ${executionTime}ms | Thread: ${threadName}"
+  },
+  "filters": [
+    {
+      "name": "排除静态资源",
+      "condition": "executionTime > 0"
+    }
+  ]
+}

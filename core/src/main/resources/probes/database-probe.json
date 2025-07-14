@@ -1,0 +1,65 @@
+{
+  "name": "Database Probe",
+  "description": "Monitor JDBC database operations",
+  "enabled": true,
+  "metrics": [
+    {
+      "name": "startTime",
+      "description": "SQL execution start time",
+      "targets": [
+        {
+          "className": "java.sql.PreparedStatement",
+          "methods": ["execute", "executeQuery", "executeUpdate"]
+        }
+      ],
+      "source": "startTime",
+      "type": "long",
+      "unit": "milliseconds",
+      "capturePoint": "before"
+    },
+    {
+      "name": "endTime",
+      "description": "SQL execution end time",
+      "targets": [
+        {
+          "className": "java.sql.PreparedStatement",
+          "methods": ["execute", "executeQuery", "executeUpdate"]
+        }
+      ],
+      "source": "endTime",
+      "type": "long",
+      "unit": "milliseconds",
+      "capturePoint": "after"
+    },
+    {
+      "name": "executionTime",
+      "description": "SQL execution duration",
+      "formula": "metrics.endTime - metrics.startTime",
+      "type": "long",
+      "unit": "milliseconds"
+    },
+    {
+      "name": "threadName",
+      "description": "Execution thread name",
+      "targets": [
+        {
+          "className": "java.sql.PreparedStatement",
+          "methods": ["execute", "executeQuery", "executeUpdate"]
+        }
+      ],
+      "source": "threadName",
+      "type": "string",
+      "capturePoint": "before"
+    }
+  ],
+  "output": {
+    "type": "DATABASE",
+    "template": "[DATABASE] Time: ${executionTime}ms | Thread: ${threadName}"
+  },
+  "filters": [
+    {
+      "name": "Exclude system queries",
+      "condition": "executionTime > 0"
+    }
+  ]
+}

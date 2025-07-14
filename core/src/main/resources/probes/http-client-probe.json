@@ -1,0 +1,65 @@
+{
+  "name": "HTTP Client Probe",
+  "description": "Monitor outbound HTTP requests",
+  "enabled": true,
+  "metrics": [
+    {
+      "name": "startTime",
+      "description": "Request start time",
+      "targets": [
+        {
+          "className": "org.apache.http.impl.client.CloseableHttpClient",
+          "methods": ["execute"]
+        }
+      ],
+      "source": "startTime",
+      "type": "long",
+      "unit": "milliseconds",
+      "capturePoint": "before"
+    },
+    {
+      "name": "endTime",
+      "description": "Request end time",
+      "targets": [
+        {
+          "className": "org.apache.http.impl.client.CloseableHttpClient",
+          "methods": ["execute"]
+        }
+      ],
+      "source": "endTime",
+      "type": "long",
+      "unit": "milliseconds",
+      "capturePoint": "after"
+    },
+    {
+      "name": "executionTime",
+      "description": "Request execution duration",
+      "formula": "metrics.endTime - metrics.startTime",
+      "type": "long",
+      "unit": "milliseconds"
+    },
+    {
+      "name": "threadName",
+      "description": "Execution thread name",
+      "targets": [
+        {
+          "className": "org.apache.http.impl.client.CloseableHttpClient",
+          "methods": ["execute"]
+        }
+      ],
+      "source": "threadName",
+      "type": "string",
+      "capturePoint": "before"
+    }
+  ],
+  "output": {
+    "type": "HTTP_CLIENT",
+    "template": "[HTTP_CLIENT] Time: ${executionTime}ms | Thread: ${threadName}"
+  },
+  "filters": [
+    {
+      "name": "Exclude health check requests",
+      "condition": "executionTime > 0"
+    }
+  ]
+}

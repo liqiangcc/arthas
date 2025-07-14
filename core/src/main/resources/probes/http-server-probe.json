@@ -1,0 +1,65 @@
+{
+  "name": "HTTP Server Probe",
+  "description": "Monitor HTTP request reception and processing",
+  "enabled": true,
+  "metrics": [
+    {
+      "name": "startTime",
+      "description": "Request start time",
+      "targets": [
+        {
+          "className": "javax.servlet.http.HttpServlet",
+          "methods": ["service"]
+        }
+      ],
+      "source": "startTime",
+      "type": "long",
+      "unit": "milliseconds",
+      "capturePoint": "before"
+    },
+    {
+      "name": "endTime",
+      "description": "Request end time",
+      "targets": [
+        {
+          "className": "javax.servlet.http.HttpServlet",
+          "methods": ["service"]
+        }
+      ],
+      "source": "endTime",
+      "type": "long",
+      "unit": "milliseconds",
+      "capturePoint": "after"
+    },
+    {
+      "name": "executionTime",
+      "description": "Request processing duration",
+      "formula": "metrics.endTime - metrics.startTime",
+      "type": "long",
+      "unit": "milliseconds"
+    },
+    {
+      "name": "threadName",
+      "description": "Processing thread name",
+      "targets": [
+        {
+          "className": "javax.servlet.http.HttpServlet",
+          "methods": ["service"]
+        }
+      ],
+      "source": "threadName",
+      "type": "string",
+      "capturePoint": "before"
+    }
+  ],
+  "output": {
+    "type": "HTTP",
+    "template": "[HTTP] Time: ${executionTime}ms | Thread: ${threadName}"
+  },
+  "filters": [
+    {
+      "name": "Exclude static resources",
+      "condition": "executionTime > 0"
+    }
+  ]
+}

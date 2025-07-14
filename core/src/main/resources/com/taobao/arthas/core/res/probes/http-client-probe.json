@@ -1,0 +1,65 @@
+{
+  "name": "HTTP Client探针",
+  "description": "监控出站HTTP请求",
+  "enabled": true,
+  "metrics": [
+    {
+      "name": "startTime",
+      "description": "请求开始时间",
+      "targets": [
+        {
+          "className": "org.apache.http.impl.client.CloseableHttpClient",
+          "methods": ["execute"]
+        }
+      ],
+      "source": "startTime",
+      "type": "long",
+      "unit": "milliseconds",
+      "capturePoint": "before"
+    },
+    {
+      "name": "endTime",
+      "description": "请求结束时间",
+      "targets": [
+        {
+          "className": "org.apache.http.impl.client.CloseableHttpClient",
+          "methods": ["execute"]
+        }
+      ],
+      "source": "endTime",
+      "type": "long",
+      "unit": "milliseconds",
+      "capturePoint": "after"
+    },
+    {
+      "name": "executionTime",
+      "description": "请求执行耗时",
+      "formula": "metrics.endTime - metrics.startTime",
+      "type": "long",
+      "unit": "milliseconds"
+    },
+    {
+      "name": "threadName",
+      "description": "执行线程名称",
+      "targets": [
+        {
+          "className": "org.apache.http.impl.client.CloseableHttpClient",
+          "methods": ["execute"]
+        }
+      ],
+      "source": "threadName",
+      "type": "string",
+      "capturePoint": "before"
+    }
+  ],
+  "output": {
+    "type": "HTTP_CLIENT",
+    "template": "[HTTP_CLIENT] Time: ${executionTime}ms | Thread: ${threadName}"
+  },
+  "filters": [
+    {
+      "name": "排除健康检查请求",
+      "condition": "executionTime > 0"
+    }
+  ]
+}

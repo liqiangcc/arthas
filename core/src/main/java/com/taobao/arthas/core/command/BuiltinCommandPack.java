@@ -34,6 +34,8 @@ import com.taobao.arthas.core.command.monitor200.TimeTunnelCommand;
 import com.taobao.arthas.core.command.monitor200.TraceCommand;
 import com.taobao.arthas.core.command.monitor200.VmToolCommand;
 import com.taobao.arthas.core.command.monitor200.WatchCommand;
+import com.taobao.arthas.core.command.trace.TraceFlowCommand;
+import com.taobao.arthas.core.command.trace.TfCommand;
 import com.taobao.arthas.core.shell.command.AnnotatedCommand;
 import com.taobao.arthas.core.shell.command.Command;
 import com.taobao.arthas.core.shell.command.CommandResolver;
@@ -106,6 +108,8 @@ public class BuiltinCommandPack implements CommandResolver {
         commandClassList.add(VmToolCommand.class);
         commandClassList.add(StopCommand.class);
         commandClassList.add(TimeCommand.class);
+        commandClassList.add(TraceFlowCommand.class);
+        commandClassList.add(TfCommand.class);
         try {
             if (ClassLoader.getSystemClassLoader().getResource("jdk/jfr/Recording.class") != null) {
                 commandClassList.add(JFRCommand.class);

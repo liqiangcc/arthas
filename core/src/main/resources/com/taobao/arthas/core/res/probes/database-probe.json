@@ -1,0 +1,65 @@
+{
+  "name": "Database探针",
+  "description": "监控JDBC数据库操作",
+  "enabled": true,
+  "metrics": [
+    {
+      "name": "startTime",
+      "description": "SQL开始执行时间",
+      "targets": [
+        {
+          "className": "java.sql.PreparedStatement",
+          "methods": ["execute", "executeQuery", "executeUpdate"]
+        }
+      ],
+      "source": "startTime",
+      "type": "long",
+      "unit": "milliseconds",
+      "capturePoint": "before"
+    },
+    {
+      "name": "endTime",
+      "description": "SQL结束执行时间",
+      "targets": [
+        {
+          "className": "java.sql.PreparedStatement",
+          "methods": ["execute", "executeQuery", "executeUpdate"]
+        }
+      ],
+      "source": "endTime",
+      "type": "long",
+      "unit": "milliseconds",
+      "capturePoint": "after"
+    },
+    {
+      "name": "executionTime",
+      "description": "SQL执行耗时",
+      "formula": "metrics.endTime - metrics.startTime",
+      "type": "long",
+      "unit": "milliseconds"
+    },
+    {
+      "name": "threadName",
+      "description": "执行线程名称",
+      "targets": [
+        {
+          "className": "java.sql.PreparedStatement",
+          "methods": ["execute", "executeQuery", "executeUpdate"]
+        }
+      ],
+      "source": "threadName",
+      "type": "string",
+      "capturePoint": "before"
+    }
+  ],
+  "output": {
+    "type": "DATABASE",
+    "template": "[DATABASE] Time: ${executionTime}ms | Thread: ${threadName}"
+  },
+  "filters": [
+    {
+      "name": "排除系统查询",
+      "condition": "executionTime > 0"
+    }
+  ]
+}

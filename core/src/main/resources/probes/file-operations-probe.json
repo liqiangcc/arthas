@@ -1,0 +1,77 @@
+{
+  "name": "File Operations Probe",
+  "description": "Monitor file read/write operations",
+  "enabled": true,
+  "metrics": [
+    {
+      "name": "startTime",
+      "description": "Operation start time",
+      "targets": [
+        {
+          "className": "java.io.FileInputStream",
+          "methods": ["read"]
+        },
+        {
+          "className": "java.io.FileOutputStream",
+          "methods": ["write"]
+        }
+      ],
+      "source": "startTime",
+      "type": "long",
+      "unit": "milliseconds",
+      "capturePoint": "before"
+    },
+    {
+      "name": "endTime",
+      "description": "Operation end time",
+      "targets": [
+        {
+          "className": "java.io.FileInputStream",
+          "methods": ["read"]
+        },
+        {
+          "className": "java.io.FileOutputStream",
+          "methods": ["write"]
+        }
+      ],
+      "source": "endTime",
+      "type": "long",
+      "unit": "milliseconds",
+      "capturePoint": "after"
+    },
+    {
+      "name": "executionTime",
+      "description": "File operation duration",
+      "formula": "metrics.endTime - metrics.startTime",
+      "type": "long",
+      "unit": "milliseconds"
+    },
+    {
+      "name": "threadName",
+      "description": "Operation thread name",
+      "targets": [
+        {
+          "className": "java.io.FileInputStream",
+          "methods": ["read"]
+        },
+        {
+          "className": "java.io.FileOutputStream",
+          "methods": ["write"]
+        }
+      ],
+      "source": "threadName",
+      "type": "string",
+      "capturePoint": "before"
+    }
+  ],
+  "output": {
+    "type": "FILE_OPERATION",
+    "template": "[FILE] Time: ${executionTime}ms | Thread: ${threadName}"
+  },
+  "filters": [
+    {
+      "name": "Exclude temporary files",
+      "condition": "executionTime > 0"
+    }
+  ]
+}
