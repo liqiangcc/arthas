@@ -38,13 +38,12 @@
 ### 2.1 基本命令
 
 - **FR-1**: 提供 `trace-flow` 命令，别名 `tf`
-- **FR-2**: 支持URL模式匹配：`tf '/api/**'` 或 `tf -u '/user/*'`
-- **FR-3**: 支持跟踪次数限制：`tf -n 5` (跟踪5次请求)
-- **FR-4**: 无参数时跟踪下一个HTTP请求
+- **FR-2**: 支持跟踪次数限制：`tf -n 5` (跟踪5次请求)
+- **FR-3**: 无参数时跟踪下一个HTTP请求
 
 ### 2.2 链路跟踪能力
 
-- **FR-5**: 自动跟踪HTTP请求的完整执行链路：
+- **FR-4**: 自动跟踪HTTP请求的完整执行链路：
   - HTTP请求接收 (Servlet/Spring MVC)
   - 数据库操作 (JDBC PreparedStatement/Statement)
   - HTTP客户端调用 (HttpClient/OkHttp/RestTemplate)
@@ -52,27 +51,29 @@
 
 ### 2.3 指标驱动过滤
 
-- **FR-6**: 支持基于指标的过滤表达式，所有过滤都基于探针定义的指标：
+- **FR-5**: 支持基于指标的过滤表达式，所有过滤都基于探针定义的指标：
   - `--filter "executionTime > 1000"` - 基于executionTime指标过滤慢请求
   - `--filter "sql.contains('user')"` - 基于sql指标过滤包含'user'的SQL操作
   - `--filter "operationType == 'SELECT'"` - 基于operationType指标过滤查询操作
   - `--filter "isSlowQuery == true"` - 基于isSlowQuery指标过滤慢查询
   - `--filter "status >= 400"` - 基于status指标过滤错误请求
+  - `--filter "url.startsWith('/api')"` - 基于url指标过滤API请求 (替代URL模式匹配)
 
-- **FR-6.1**: 指标驱动过滤的优势：
+- **FR-5.1**: 指标驱动过滤的优势：
   - **类型安全**: 基于指标的类型定义进行过滤，避免类型错误
   - **语义清晰**: 过滤条件直接对应业务指标，易于理解
   - **可扩展**: 新增指标后自动支持相应的过滤功能
+  - **统一接口**: URL匹配、性能过滤、业务过滤都使用同一套过滤语法
 
 ### 2.4 内置探针配置
 
-- **FR-7**: MVP版本内置4个核心探针，基于预定义的配置文件实现：
+- **FR-6**: MVP版本内置4个核心探针，基于预定义的配置文件实现：
   - **HTTP Server探针**: `http-server-probe.json` - 监控Servlet/Spring MVC请求处理
   - **Database探针**: `database-probe.json` - 监控JDBC SQL执行
   - **HTTP Client探针**: `http-client-probe.json` - 监控出站HTTP请求
   - **File Operations探针**: `file-operations-probe.json` - 监控文件读写操作
 
-- **FR-7.1**: 内置探针配置文件特点：
+- **FR-6.1**: 内置探针配置文件特点：
   - 配置文件内置在jar包中，用户无需手动配置
   - 采用简化的配置格式，专注核心功能
   - 支持用户通过外部配置文件覆盖内置配置（高级功能）
@@ -351,14 +352,17 @@ GET /api/users/123 -> 200 OK (Total: 1.5s)
 # 跟踪下一个HTTP请求
 tf
 
-# 跟踪API请求
-tf '/api/**'
+# 跟踪API请求 (使用filter代替URL模式)
+tf --filter "url.startsWith('/api')"
 
 # 跟踪5次用户相关请求
-tf -u '/user/*' -n 5
+tf -n 5 --filter "url.contains('/user')"
 
 # 只显示慢请求 (>1秒)
 tf --filter "executionTime > 1000"
+
+# 组合过滤条件
+tf --filter "url.startsWith('/api') && executionTime > 500"
 
 # 保存结果到文件
 tf --output-file trace-result.json
@@ -386,14 +390,14 @@ tf --filter "queueWaitTime > 500"
 # 分析用户相关的数据操作
 tf --filter "sql.contains('user')"
 
-# 分析写操作（基于计算指标）
-tf --filter "operationType in ['INSERT', 'UPDATE', 'DELETE']"
+# 分析API请求的数据操作
+tf --filter "url.startsWith('/api') && operationType in ['INSERT', 'UPDATE', 'DELETE']"
 
 # 分析高吞吐量的查询
 tf --filter "throughputScore > 100"
 
-# 分析队列效率低的请求
-tf --filter "queueEfficiency < 80"
+# 分析特定路径的队列效率
+tf --filter "url.contains('/user') && queueEfficiency < 80"
 ```
 
 **场景3: 异常问题排查**
@@ -998,29 +1002,269 @@ public class ExpressionException extends RuntimeException {
 
 ---
 
-## 6. 实现优先级
+## 6. 分阶段实现计划
 
-### P0 (必须实现)
-- 基本的trace-flow命令和URL匹配
-- 配置文件解析和加载机制
-- **Source表达式解析器** (支持内置变量、属性访问、简单条件)
-- **Formula表达式解析器** (支持基础算术运算和JavaScript引擎)
-- HTTP Server + Database探针配置
-- 控制台树状输出
-- 基础指标和计算指标支持
+### 阶段1: 基础框架 (可独立测试)
+**目标**: 建立基本的命令框架和配置解析能力
 
-### P1 (重要)
-- HTTP Client + File Operations探针配置
-- **表达式缓存和性能优化**
-- **依赖解析和循环检测**
-- 基础过滤功能（基于计算指标）
+**功能范围**:
+- `trace-flow` 命令基础框架
+- 配置文件解析和加载
+- 简单的Source表达式解析 (内置变量: startTime, endTime, threadName)
+- 基础的方法拦截机制
+
+**测试方式**:
+```bash
+# 测试命令框架
+tf --help
+
+# 测试配置加载
+tf --list-probes
+
+# 测试简单拦截 (手动触发)
+tf --target "java.lang.System.currentTimeMillis()" --action "System.out.println"
+```
+
+**交付物**:
+- 基础命令行解析
+- 配置文件加载器
+- 简单表达式解析器
+- 方法拦截基础框架
+
+---
+
+### 阶段2: 单探针实现 (Database探针)
+**目标**: 完整实现一个探针，验证指标采集和计算
+
+**功能范围**:
+- Database探针完整实现
+- Source表达式完整支持 (this, args, returnValue, exception)
+- Formula表达式基础支持 (JavaScript引擎)
+- 基础指标和计算指标
+- 控制台输出
+
+**测试方式**:
+```bash
+# 测试数据库探针
+tf --probe database
+
+# 测试指标采集
+tf --filter "executionTime > 100"
+
+# 测试计算指标
+tf --filter "operationType == 'SELECT'"
+```
+
+**测试用例**:
+```java
+// 创建测试用的数据库操作
+public class DatabaseTest {
+    public void testSlowQuery() {
+        PreparedStatement stmt = connection.prepareStatement("SELECT * FROM users WHERE id = ?");
+        stmt.setInt(1, 123);
+        ResultSet rs = stmt.executeQuery(); // 这里会被拦截
+    }
+}
+```
+
+**交付物**:
+- 完整的Database探针
+- Source/Formula表达式解析器
+- 指标采集和计算引擎
+- 控制台输出格式
+
+---
+
+### 阶段3: 多探针协同 (HTTP + Database)
+**目标**: 验证多探针协同工作和链路跟踪
+
+**功能范围**:
+- HTTP Server探针实现
+- 多探针协同工作
+- 链路跟踪和Trace ID
+- 树状输出格式
+
+**测试方式**:
+```bash
+# 测试HTTP请求链路
+tf --filter "url.startsWith('/api/users')"
+
+# 测试多探针协同
+tf --filter "isSlowQuery == true || isSlowRequest == true"
+```
+
+**测试用例**:
+```java
+@RestController
+public class UserController {
+    @GetMapping("/api/users/{id}")
+    public User getUser(@PathVariable Long id) {
+        // HTTP请求会被拦截
+        User user = userService.findById(id); // 数据库查询会被拦截
+        return user;
+    }
+}
+```
+
+**交付物**:
+- HTTP Server探针
+- 链路跟踪机制
+- 多探针协同框架
+- 树状输出实现
+
+---
+
+### 阶段4: 完整MVP (所有探针)
+**目标**: 实现所有核心探针，完成MVP功能
+
+**功能范围**:
+- HTTP Client探针
+- File Operations探针
+- 完整的过滤功能
 - JSON文件输出
-- 指标级别targets支持
+- 性能优化
 
-### P2 (可选)
-- **高级表达式功能** (复杂条件、自定义函数)
-- **表达式安全限制和沙箱**
+**测试方式**:
+```bash
+# 测试完整链路
+tf --filter "url.startsWith('/api/users')" --output-file result.json
+
+# 测试复杂过滤
+tf --filter "isSlowQuery == true && isLargeFile == true"
+
+# 测试文件操作
+tf --filter "operationType in ['READ', 'WRITE']"
+```
+
+**测试用例**:
+```java
+@RestController
+public class UserController {
+    @GetMapping("/api/users/{id}")
+    public User getUser(@PathVariable Long id) {
+        // 1. HTTP请求
+        User user = userService.findById(id);        // 2. 数据库查询
+        String config = fileService.readConfig();    // 3. 文件读取
+        ProfileData profile = httpClient.get(url);   // 4. HTTP客户端调用
+        fileService.writeCache(profile);             // 5. 文件写入
+        return user;
+    }
+}
+```
+
+**交付物**:
+- 所有核心探针
+- 完整的过滤引擎
+- JSON输出功能
+- 性能优化实现
+
+---
+
+### 阶段5: 增强功能 (可选)
+**目标**: 添加高级功能和优化
+
+**功能范围**:
 - 堆栈跟踪功能
+- 表达式缓存优化
+- 用户自定义配置
 - 详细模式输出
-- 用户自定义配置文件支持
-- 高级计算指标和聚合功能
+
+**测试方式**:
+```bash
+# 测试堆栈跟踪
+tf --stack-trace-threshold 1000
+
+# 测试详细模式
+tf --verbose
+
+# 测试自定义配置
+tf --config-file custom-probes.json
+```
+
+---
+
+## 7. 每阶段测试策略
+
+### 7.1 单元测试
+```java
+// 表达式解析器测试
+@Test
+public void testSourceExpression() {
+    ExecutionContext context = createMockContext();
+    Object result = sourceParser.parse("this.toString()", context);
+    assertEquals("SELECT * FROM users", result);
+}
+
+// 指标计算测试
+@Test
+public void testFormulaCalculation() {
+    MetricsContext context = new MetricsContext();
+    context.addMetric("endTime", 1000L);
+    context.addMetric("startTime", 200L);
+
+    Object result = formulaParser.parse("metrics.endTime - metrics.startTime", context);
+    assertEquals(800L, result);
+}
+```
+
+### 7.2 集成测试
+```java
+// 探针集成测试
+@Test
+public void testDatabaseProbe() {
+    // 1. 配置探针
+    ProbeConfig config = loadProbeConfig("database-probe.json");
+
+    // 2. 执行数据库操作
+    executeSlowQuery();
+
+    // 3. 验证指标采集
+    List<Metric> metrics = getCollectedMetrics();
+    assertTrue(metrics.stream().anyMatch(m -> m.getName().equals("isSlowQuery") && (Boolean)m.getValue()));
+}
+```
+
+### 7.3 端到端测试
+```java
+// 完整链路测试
+@Test
+public void testFullTrace() {
+    // 1. 启动trace-flow
+    TraceFlowCommand cmd = new TraceFlowCommand();
+    cmd.setUrlPattern("/api/users/*");
+
+    // 2. 发送HTTP请求
+    String response = restTemplate.getForObject("/api/users/123", String.class);
+
+    // 3. 验证跟踪结果
+    TraceResult result = cmd.getLastTrace();
+    assertNotNull(result.getTraceId());
+    assertTrue(result.getNodes().size() >= 3); // HTTP + Database + 其他
+}
+```
+
+### 7.4 性能测试
+```bash
+# 性能基准测试
+tf --benchmark --requests 1000 '/api/users/*'
+
+# 内存使用测试
+tf --memory-profile '/api/users/*'
+
+# 表达式解析性能
+tf --expression-benchmark
+```
+
+---
+
+## 8. 实现里程碑
+
+| 阶段 | 时间估算 | 核心交付 | 测试重点 |
+|------|----------|----------|----------|
+| 阶段1 | 1-2周 | 基础框架 | 命令解析、配置加载 |
+| 阶段2 | 2-3周 | Database探针 | 指标采集、表达式解析 |
+| 阶段3 | 2-3周 | 多探针协同 | 链路跟踪、输出格式 |
+| 阶段4 | 3-4周 | 完整MVP | 所有探针、过滤功能 |
+| 阶段5 | 2-3周 | 增强功能 | 性能优化、高级功能 |
+
+**总计**: 10-15周完成完整MVP
