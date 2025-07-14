@@ -25,7 +25,7 @@ public class ProbeManager {
     };
 
     private final Map<String, ProbeConfig> probeConfigs = new ConcurrentHashMap<>();
-    private final Map<String, ProbeInterceptor> activeProbes = new ConcurrentHashMap<>();
+    private final Map<String, Object> activeProbes = new ConcurrentHashMap<>();
     private boolean initialized = false;
 
     /**
@@ -263,10 +263,18 @@ public class ProbeManager {
      * 初始化单个探针
      */
     private void initializeProbe(ProbeConfig config) {
-        // TODO: 在阶段2实现实际的探针初始化逻辑
-        // 这里先创建一个模拟的拦截器
-        ProbeInterceptor interceptor = new MockProbeInterceptor(config);
-        activeProbes.put(config.getName(), interceptor);
+        try {
+            // 阶段2：创建真实的配置驱动拦截器
+            ConfigurableMethodInterceptor interceptor = new ConfigurableMethodInterceptor(config);
+            activeProbes.put(config.getName(), interceptor);
+
+            // 注册到拦截器管理器
+            InterceptorManager.getInstance().registerInterceptor(interceptor);
+
+            System.out.println("Initialized probe: " + config.getName());
+        } catch (Exception e) {
+            System.err.println("Failed to initialize probe: " + config.getName() + ", error: " + e.getMessage());
+        }
     }
 
     /**

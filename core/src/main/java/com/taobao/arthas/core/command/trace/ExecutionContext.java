@@ -4,6 +4,8 @@ import com.taobao.arthas.core.util.LogUtil;
 import com.taobao.arthas.core.util.StringUtils;
 
 import java.lang.reflect.Method;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -19,6 +21,8 @@ public class ExecutionContext {
     private long startTime;
     private long endTime;
     private String threadName;
+    private String methodSignature;
+    private Map<String, Object> metrics = new HashMap<>();
 
     // 构造函数
     public ExecutionContext() {
@@ -84,6 +88,9 @@ public class ExecutionContext {
      * 获取方法签名字符串
      */
     public String getMethodSignature() {
+        if (methodSignature != null) {
+            return methodSignature;
+        }
         if (method == null) {
             return "unknown";
         }
@@ -192,6 +199,32 @@ public class ExecutionContext {
         context.setEndTime(2000L);
         context.setThreadName("test-thread");
         return context;
+    }
+
+    // 新增的getter和setter方法
+    public Object getTarget() {
+        return targetObject;
+    }
+
+    public void setTarget(Object target) {
+        this.targetObject = target;
+    }
+
+    public void setMethodSignature(String methodSignature) {
+        this.methodSignature = methodSignature;
+    }
+
+    // 指标管理方法
+    public void addMetric(String name, Object value) {
+        metrics.put(name, value);
+    }
+
+    public Object getMetric(String name) {
+        return metrics.get(name);
+    }
+
+    public Map<String, Object> getAllMetrics() {
+        return new HashMap<>(metrics);
     }
 
     /**

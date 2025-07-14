@@ -130,6 +130,27 @@ public class TraceFlowCommand extends AnnotatedCommand {
             process.write("Status: " + (config.isEnabled() ? "Enabled" : "Disabled") + "\n");
             process.write("Metrics count: " + config.getMetrics().size() + "\n");
 
+            // 显示Targets信息
+            process.write("\nTargets:\n");
+            java.util.Set<String> displayedTargets = new java.util.HashSet<>();
+            for (ProbeConfig.MetricConfig metric : config.getMetrics()) {
+                if (metric.getTargets() != null) {
+                    for (ProbeConfig.TargetConfig target : metric.getTargets()) {
+                        String targetKey = target.getClassName();
+                        if (!displayedTargets.contains(targetKey)) {
+                            displayedTargets.add(targetKey);
+                            process.write("- " + target.getClassName() + ": " + target.getMethods() + "\n");
+                        }
+                    }
+                }
+            }
+
+            // 显示Output Type信息
+            String outputType = config.getOutput() != null ?
+                config.getOutput().getType() :
+                config.getName().replace("探针", "").toUpperCase();
+            process.write("\nOutput Type: " + outputType + "\n");
+
             if (verbose) {
                 process.write("\nMetrics details:\n");
                 for (ProbeConfig.MetricConfig metric : config.getMetrics()) {
@@ -150,12 +171,32 @@ public class TraceFlowCommand extends AnnotatedCommand {
         }
 
         try {
+            // 初始化探针配置
             probeManager.initializeProbes();
+
+            // 初始化拦截器管理器
+            InterceptorManager interceptorManager = InterceptorManager.getInstance();
+            if (!interceptorManager.isInitialized()) {
+                // 获取Instrumentation实例
+                java.lang.instrument.Instrumentation instrumentation =
+                    com.taobao.arthas.core.server.ArthasBootstrap.getInstance().getInstrumentation();
+
+                interceptorManager.initialize(instrumentation);
+
+                if (verbose) {
+                    process.write("Interceptor manager initialized with " +
+                                interceptorManager.getInterceptorCount() + " interceptors\n");
+                }
+            }
+
             if (verbose) {
                 process.write("Probes initialized successfully\n");
             }
         } catch (Exception e) {
             process.write("Failed to initialize probes: " + e.getMessage() + "\n");
+            if (verbose) {
+                e.printStackTrace();
+            }
             throw new RuntimeException("Failed to initialize probes", e);
         }
     }
@@ -175,14 +216,34 @@ public class TraceFlowCommand extends AnnotatedCommand {
         process.write("Press Ctrl+C to stop tracing\n");
         process.write("========================\n");
 
-        // TODO: 在阶段2实现实际的跟踪逻辑
-        // 这里先输出模拟信息
-        process.write("Waiting for HTTP requests...\n");
+        // 阶段2：实现真实的跟踪逻辑
+        try {
+            InterceptorManager interceptorManager = InterceptorManager.getInstance();
 
-        // 模拟跟踪结果
-        if (verbose) {
-            process.write("\n[DEBUG] This is Stage 1 mock output\n");
-            process.write("[DEBUG] Actual tracing will be implemented in Stage 2\n");
+            if (verbose) {
+                process.write("Active interceptors: " + interceptorManager.getInterceptorCount() + "\n");
+                for (MethodInterceptor interceptor : interceptorManager.getInterceptors()) {
+                    process.write("  - " + interceptor.getName() + " (enabled: " + interceptor.isEnabled() + ")\n");
+                }
+            }
+
+            process.write("Waiting for method calls to intercept...\n");
+            process.write("Note: Database operations (JDBC calls) will be automatically traced\n");
+
+            // 阶段2：拦截器已经通过字节码增强激活，会自动拦截匹配的方法调用
+            // 这里只需要等待或提供一些状态信息
+
+            if (verbose) {
+                process.write("\n[DEBUG] Stage 2: Real interception is now active\n");
+                process.write("[DEBUG] JDBC method calls will be intercepted and traced\n");
+                process.write("[DEBUG] Use your application to trigger database operations\n");
+            }
+
+        } catch (Exception e) {
+            process.write("Error during tracing: " + e.getMessage() + "\n");
+            if (verbose) {
+                e.printStackTrace();
+            }
         }
 
         process.end();
