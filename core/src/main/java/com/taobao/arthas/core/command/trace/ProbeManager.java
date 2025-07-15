@@ -52,31 +52,87 @@ public class ProbeManager {
 
     /**
      * 动态获取探针配置文件列表（配置驱动）
+     * 支持JAR包和文件系统两种环境
      */
     private String[] getProbeConfigFiles() {
         try {
-            // 尝试从资源目录中扫描所有.json文件
             java.net.URL url = getClass().getResource(PROBE_CONFIG_DIR);
             if (url != null) {
-                java.io.File dir = new java.io.File(url.toURI());
-                if (dir.exists() && dir.isDirectory()) {
-                    String[] files = dir.list((dir1, name) -> name.endsWith(".json"));
-                    if (files != null && files.length > 0) {
-                        return files;
+                String protocol = url.getProtocol();
+
+                if ("file".equals(protocol)) {
+                    // 文件系统环境
+                    java.io.File dir = new java.io.File(url.toURI());
+                    if (dir.exists() && dir.isDirectory()) {
+                        String[] files = dir.list((dir1, name) -> name.endsWith(".json"));
+                        if (files != null && files.length > 0) {
+                            return files;
+                        }
                     }
+                } else if ("jar".equals(protocol)) {
+                    // JAR包环境
+                    return getProbeConfigFilesFromJar(url);
                 }
             }
         } catch (Exception e) {
             System.err.println("Error scanning probe config directory: " + e.getMessage());
+            e.printStackTrace();
         }
 
-        // 如果动态扫描失败，使用已知的配置文件作为回退
-        // 注意：这仍然是配置驱动的，因为这些文件名反映了实际存在的配置文件
+        // 如果动态扫描失败，返回已知的配置文件列表
+        return getKnownProbeConfigFiles();
+    }
+
+    /**
+     * 从JAR包中获取探针配置文件列表
+     */
+    private String[] getProbeConfigFilesFromJar(java.net.URL url) {
+        try {
+            java.net.URLConnection connection = url.openConnection();
+            if (connection instanceof java.net.JarURLConnection) {
+                java.net.JarURLConnection jarConnection = (java.net.JarURLConnection) connection;
+                java.util.jar.JarFile jarFile = jarConnection.getJarFile();
+
+                String entryName = jarConnection.getEntryName();
+                if (entryName != null && !entryName.endsWith("/")) {
+                    entryName += "/";
+                }
+
+                java.util.List<String> configFiles = new java.util.ArrayList<>();
+                java.util.Enumeration<java.util.jar.JarEntry> entries = jarFile.entries();
+
+                while (entries.hasMoreElements()) {
+                    java.util.jar.JarEntry entry = entries.nextElement();
+                    String name = entry.getName();
+
+                    if (entryName != null && name.startsWith(entryName) &&
+                        name.endsWith(".json") && !name.equals(entryName)) {
+                        // 只取文件名，不包含路径
+                        String fileName = name.substring(entryName.length());
+                        if (!fileName.contains("/")) {  // 确保是直接子文件，不是子目录中的文件
+                            configFiles.add(fileName);
+                        }
+                    }
+                }
+
+                return configFiles.toArray(new String[0]);
+            }
+        } catch (Exception e) {
+            System.err.println("Error reading probe configs from JAR: " + e.getMessage());
+        }
+
+        return new String[]{};
+    }
+
+    /**
+     * 返回已知的探针配置文件列表（备选方案）
+     */
+    private String[] getKnownProbeConfigFiles() {
         return new String[]{
-            "database-probe.json",
             "http-server-probe.json",
-            "http-client-probe.json",
-            "file-operations-probe.json"
+            "database-probe.json",
+            "file-operations-probe.json",
+            "http-client-probe.json"
         };
     }
 

@@ -10,11 +10,6 @@ public class ProbeConfig {
     private String name;
     private String description;
     private boolean enabled = true;
-    private boolean traceEntry = false;  // 是否作为跟踪入口（默认false）
-    private boolean traceExit = false;   // 是否作为跟踪出口（默认false）
-    private String exitStrategy = "first_call";  // 出口策略：first_call（第一次调用）, last_call（最后一次调用）
-    private List<MethodConfig> entryMethods; // 入口方法配置
-    private List<MethodConfig> exitMethods;  // 出口方法配置
     private List<MetricConfig> metrics;
     private OutputConfig output;
     private List<FilterConfig> filters;
@@ -51,38 +46,6 @@ public class ProbeConfig {
 
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
-    }
-
-    public boolean isTraceEntry() {
-        return traceEntry;
-    }
-
-    public void setTraceEntry(boolean traceEntry) {
-        this.traceEntry = traceEntry;
-    }
-
-    public boolean isTraceExit() {
-        return traceExit;
-    }
-
-    public void setTraceExit(boolean traceExit) {
-        this.traceExit = traceExit;
-    }
-
-    public List<MethodConfig> getEntryMethods() {
-        return entryMethods;
-    }
-
-    public void setEntryMethods(List<MethodConfig> entryMethods) {
-        this.entryMethods = entryMethods;
-    }
-
-    public List<MethodConfig> getExitMethods() {
-        return exitMethods;
-    }
-
-    public void setExitMethods(List<MethodConfig> exitMethods) {
-        this.exitMethods = exitMethods;
     }
 
     public List<MetricConfig> getMetrics() {

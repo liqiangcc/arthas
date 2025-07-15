@@ -1,7 +1,7 @@
 {
   "name": "File Operations Probe",
   "description": "Monitor file read/write operations",
-  "enabled": true,
+  "enabled": false,
   "traceEntry": false,
   "traceExit": false,
   "output": {

@@ -1,9 +1,7 @@
 {
   "name": "Database Probe",
   "description": "Monitor JDBC database operations",
-  "enabled": true,
-  "traceEntry": false,
-  "traceExit": false,
+  "enabled": false,
   "output": {
     "type": "DATABASE",
     "format": "tree"

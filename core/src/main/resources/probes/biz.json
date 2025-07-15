@@ -1,0 +1,30 @@
+{
+  "name": "biz",
+  "description": "Monitor biz request reception and processing",
+  "enabled": true,
+  "metrics": [
+    {
+      "name": "writeLog",
+      "description": "write log",
+      "targets": [
+        {
+          "className": "com.arthas.test.service.FileOperationService",
+          "methods": ["writeLogFile"]
+        }
+      ],
+      "source": "args[0]",
+      "type": "String",
+      "capturePoint": "after"
+    }
+  ],
+  "output": {
+    "type": "biz",
+    "template": "[biz] Time: ${executionTime}ms | Thread: ${threadName} | writeLog"
+  },
+  "filters": [
+    {
+      "name": "Exclude static resources",
+      "condition": "executionTime > 0"
+    }
+  ]
+}

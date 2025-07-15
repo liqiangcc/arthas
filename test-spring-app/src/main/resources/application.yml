@@ -1,0 +1,54 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: arthas-trace-flow-test-app
+  
+  # H2 数据库配置
+  datasource:
+    url: jdbc:h2:mem:testdb
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: 
+  
+  # JPA配置
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+  
+  # H2 控制台（可选，用于查看数据库）
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+# 日志配置
+logging:
+  level:
+    com.arthas.test: DEBUG
+    org.springframework.web: INFO
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+# 应用信息
+info:
+  app:
+    name: Arthas Trace Flow Test Application
+    description: Spring Boot application for testing Arthas trace-flow functionality
+    version: 1.0.0
+    features:
+      - HTTP Server operations
+      - Database operations (H2)
+      - File operations
+      - HTTP Client operations
+      - Combined operation chains

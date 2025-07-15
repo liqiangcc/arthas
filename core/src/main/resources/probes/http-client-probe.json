@@ -1,7 +1,7 @@
 {
   "name": "HTTP Client Probe",
   "description": "Monitor outbound HTTP requests",
-  "enabled": true,
+  "enabled": false,
   "traceEntry": false,
   "traceExit": true,
   "exitStrategy": "last_call",

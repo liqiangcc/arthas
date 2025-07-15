@@ -1,6 +1,8 @@
 @echo off
 REM Arthas Run Script
-REM Usage: run.bat
+REM Usage:
+REM   run.bat          - Start Arthas normally
+REM   run.bat --debug  - Start Arthas with debug port enabled (port 5005)
 
 setlocal enabledelayedexpansion
 
@@ -8,6 +10,18 @@ REM Configuration
 set "ARTHAS_HOME=%~dp0.."
 set "BUILD_DIR=%ARTHAS_HOME%\packaging\target\arthas-bin"
 set "ARTHAS_BOOT_JAR=%BUILD_DIR%\arthas-boot.jar"
+
+REM Debug Configuration
+set "DEBUG_PORT=5005"
+set "ENABLE_DEBUG=false"
+
+REM Check for debug parameter
+if "%1"=="--debug" (
+    set "ENABLE_DEBUG=true"
+    echo DEBUG MODE ENABLED - Debug port: %DEBUG_PORT%
+    echo You can attach a debugger to localhost:%DEBUG_PORT%
+    echo.
+)
 
 echo ========================================
 echo        Arthas Run Script
@@ -48,7 +62,13 @@ echo.
 echo ==================== Arthas Boot ====================
 
 REM Run Arthas Boot
-java -jar "%ARTHAS_BOOT_JAR%"
+if "%ENABLE_DEBUG%"=="true" (
+    echo Starting Arthas Boot with debug enabled...
+    java -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=%DEBUG_PORT% -jar "%ARTHAS_BOOT_JAR%"
+) else (
+    echo Starting Arthas Boot...
+    java -jar "%ARTHAS_BOOT_JAR%"
+)
 
 echo.
 echo =====================================================

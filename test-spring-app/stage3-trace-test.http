@@ -1,0 +1,119 @@
+### Arthas 阶段3 链路跟踪测试
+### 
+### 测试步骤：
+### 1. 启动应用：mvnw.cmd spring-boot:run
+### 2. 启动Arthas：java -jar arthas-boot.jar
+### 3. 连接到应用进程
+### 4. 启用unsafe模式：options unsafe true
+### 5. 启动链路跟踪：trace-flow -n 1 -v
+### 6. 执行下面的HTTP请求
+### 7. 观察Arthas输出中的链路跟踪信息
+
+### ===========================================
+### 准备工作：清理数据库（可选）
+### ===========================================
+
+### 清理数据库（避免邮箱重复错误）
+DELETE http://localhost:8080/api/test/cleanup
+Accept: application/json
+
+###
+
+### ===========================================
+### 阶段3核心测试：多探针协同工作
+### ===========================================
+
+### 测试1：完整链路跟踪（推荐）
+### 预期看到：HTTP_SERVER -> DATABASE -> FILE_OPERATION -> HTTP_CLIENT -> DATABASE -> FILE_OPERATION
+### 所有操作应该有相同的Trace ID
+GET http://localhost:8080/api/test/complex
+Accept: application/json
+
+###
+
+### 测试2：数据库操作链路
+### 预期看到：HTTP_SERVER -> DATABASE (多次操作)
+GET http://localhost:8080/api/test/database
+Accept: application/json
+
+###
+
+### 测试3：文件操作链路
+### 预期看到：HTTP_SERVER -> FILE_OPERATION (多次操作)
+GET http://localhost:8080/api/test/file
+Accept: application/json
+
+###
+
+### 测试4：HTTP客户端链路
+### 预期看到：HTTP_SERVER -> HTTP_CLIENT (多次外部调用)
+GET http://localhost:8080/api/test/http
+Accept: application/json
+
+###
+
+### ===========================================
+### 连续测试（测试链路跟踪的稳定性）
+### ===========================================
+
+### 连续执行5次复杂操作，每次应该生成不同的Trace ID
+### 在Arthas中使用：trace-flow -n 5 -v
+
+### 第1次
+GET http://localhost:8080/api/test/complex
+
+###
+
+### 第2次
+GET http://localhost:8080/api/test/complex
+
+###
+
+### 第3次
+GET http://localhost:8080/api/test/complex
+
+###
+
+### 第4次
+GET http://localhost:8080/api/test/complex
+
+###
+
+### 第5次
+GET http://localhost:8080/api/test/complex
+
+###
+
+### ===========================================
+### 验证标准
+### ===========================================
+
+### 阶段3成功标准：
+### 1. ✅ 相同请求中的所有操作有相同的Trace ID
+### 2. ✅ 不同请求有不同的Trace ID
+### 3. ✅ 能看到多种节点类型：HTTP_SERVER, DATABASE, FILE_OPERATION, HTTP_CLIENT
+### 4. ✅ 正确的线程信息（同一请求在同一线程）
+### 5. ✅ 配置驱动的属性显示
+### 6. ✅ 树状输出格式清晰易读
+
+### 预期的Arthas输出示例：
+### ============================================================
+### [2025-07-15 11:30:01.123] [HTTP_SERVER]
+###   Method: javax.servlet.http.HttpServlet.service
+###   Thread: http-nio-8080-exec-1
+###   Trace ID: trace-1001-abc123
+### ============================================================
+### 
+### ============================================================
+### [2025-07-15 11:30:01.145] [DATABASE]
+###   Method: java.sql.PreparedStatement.executeUpdate
+###   Thread: http-nio-8080-exec-1
+###   Trace ID: trace-1001-abc123
+### ============================================================
+### 
+### ============================================================
+### [2025-07-15 11:30:01.167] [FILE_OPERATION]
+###   Method: java.io.FileOutputStream.write
+###   Thread: http-nio-8080-exec-1
+###   Trace ID: trace-1001-abc123
+### ============================================================

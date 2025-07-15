@@ -1,0 +1,117 @@
+### Arthas Trace Flow Test Application - HTTP Test File
+### 使用方法：在IDEA中打开此文件，点击每个请求旁边的绿色箭头执行
+
+### ===========================================
+### 基础测试端点
+### ===========================================
+
+### 1. 简单HTTP响应测试（仅HTTP Server操作）
+GET http://localhost:8080/api/test/simple
+Accept: application/json
+
+###
+
+### 2. 数据库操作测试（HTTP Server + Database）
+GET http://localhost:8080/api/test/database
+Accept: application/json
+
+###
+
+### 3. 文件操作测试（HTTP Server + File Operations）
+GET http://localhost:8080/api/test/file
+Accept: application/json
+
+###
+
+### 4. HTTP客户端测试（HTTP Server + HTTP Client）
+GET http://localhost:8080/api/test/http
+Accept: application/json
+
+###
+
+### ===========================================
+### 关键测试端点 - 阶段3验证
+### ===========================================
+
+### 5. 复杂链路测试（所有操作类型组合）
+### 这是测试阶段3链路跟踪的核心端点
+### 包含：HTTP Server + Database + File Operations + HTTP Client
+GET http://localhost:8080/api/test/complex
+Accept: application/json
+
+###
+
+### ===========================================
+### 用户管理端点
+### ===========================================
+
+### 6. 获取所有用户
+GET http://localhost:8080/api/users
+Accept: application/json
+
+###
+
+### 7. 创建新用户
+POST http://localhost:8080/api/users
+Content-Type: application/json
+
+{
+  "name": "Test User",
+  "email": "test@example.com",
+  "phone": "1234567890"
+}
+
+###
+
+### 8. 创建另一个用户（用于测试多用户场景）
+POST http://localhost:8080/api/users
+Content-Type: application/json
+
+{
+  "name": "Jane Doe",
+  "email": "jane@example.com",
+  "phone": "0987654321"
+}
+
+###
+
+### ===========================================
+### 应用信息端点
+### ===========================================
+
+### 9. 应用健康检查（如果启用了actuator）
+GET http://localhost:8080/actuator/health
+Accept: application/json
+
+###
+
+### 10. H2数据库控制台（在浏览器中打开）
+### http://localhost:8080/h2-console
+### JDBC URL: jdbc:h2:mem:testdb
+### Username: sa
+### Password: (空)
+
+### ===========================================
+### 批量测试脚本
+### ===========================================
+
+### 连续执行多个复杂操作（用于测试链路跟踪的连续性）
+### 执行前请确保Arthas trace-flow已启动
+
+### 第一次复杂操作
+GET http://localhost:8080/api/test/complex
+Accept: application/json
+
+###
+
+### 第二次复杂操作
+GET http://localhost:8080/api/test/complex
+Accept: application/json
+
+###
+
+### 第三次复杂操作
+GET http://localhost:8080/api/test/complex
+Accept: application/json
+
+###

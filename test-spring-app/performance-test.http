@@ -1,0 +1,116 @@
+### Arthas Trace Flow 性能测试
+### 用于测试链路跟踪在高并发场景下的表现
+
+### ===========================================
+### 快速连续请求测试
+### ===========================================
+
+### 快速执行多个简单请求
+GET http://localhost:8080/api/test/simple
+
+###
+
+GET http://localhost:8080/api/test/simple
+
+###
+
+GET http://localhost:8080/api/test/simple
+
+###
+
+GET http://localhost:8080/api/test/simple
+
+###
+
+GET http://localhost:8080/api/test/simple
+
+###
+
+### ===========================================
+### 混合操作类型测试
+### ===========================================
+
+### 交替执行不同类型的操作
+GET http://localhost:8080/api/test/database
+
+###
+
+GET http://localhost:8080/api/test/file
+
+###
+
+GET http://localhost:8080/api/test/http
+
+###
+
+GET http://localhost:8080/api/test/complex
+
+###
+
+GET http://localhost:8080/api/test/database
+
+###
+
+### ===========================================
+### 用户创建批量测试
+### ===========================================
+
+### 创建多个用户，测试数据库操作的链路跟踪
+POST http://localhost:8080/api/users
+Content-Type: application/json
+
+{
+  "name": "User 1",
+  "email": "user1@test.com",
+  "phone": "1111111111"
+}
+
+###
+
+POST http://localhost:8080/api/users
+Content-Type: application/json
+
+{
+  "name": "User 2", 
+  "email": "user2@test.com",
+  "phone": "2222222222"
+}
+
+###
+
+POST http://localhost:8080/api/users
+Content-Type: application/json
+
+{
+  "name": "User 3",
+  "email": "user3@test.com", 
+  "phone": "3333333333"
+}
+
+###
+
+### 查询所有用户
+GET http://localhost:8080/api/users
+
+###
+
+### ===========================================
+### 错误场景测试
+### ===========================================
+
+### 测试重复邮箱（应该产生异常）
+POST http://localhost:8080/api/users
+Content-Type: application/json
+
+{
+  "name": "Duplicate User",
+  "email": "user1@test.com",
+  "phone": "4444444444"
+}
+
+###
+
+### 测试无效请求
+GET http://localhost:8080/api/test/nonexistent
+
+###
