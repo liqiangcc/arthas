@@ -171,54 +171,6 @@ public class ProbeManager {
     }
 
 
-
-    /**
-     * 创建模拟探针配置（备用方案）
-     */
-    private ProbeConfig createMockProbeConfig(String name, String description) {
-        ProbeConfig config = new ProbeConfig();
-        config.setName(name);
-        config.setDescription(description);
-        config.setEnabled(true);
-        
-        // 创建基础指标
-        List<ProbeConfig.MetricConfig> metrics = new ArrayList<>();
-        
-        ProbeConfig.MetricConfig startTime = new ProbeConfig.MetricConfig();
-        startTime.setName("startTime");
-        startTime.setDescription("Start time");
-        startTime.setSource("startTime");
-        startTime.setType("long");
-        startTime.setCapturePoint("before");
-        metrics.add(startTime);
-
-        ProbeConfig.MetricConfig endTime = new ProbeConfig.MetricConfig();
-        endTime.setName("endTime");
-        endTime.setDescription("End time");
-        endTime.setSource("endTime");
-        endTime.setType("long");
-        endTime.setCapturePoint("after");
-        metrics.add(endTime);
-
-        ProbeConfig.MetricConfig executionTime = new ProbeConfig.MetricConfig();
-        executionTime.setName("executionTime");
-        executionTime.setDescription("Execution time");
-        executionTime.setFormula("metrics.endTime - metrics.startTime");
-        executionTime.setType("long");
-        metrics.add(executionTime);
-
-        ProbeConfig.MetricConfig threadName = new ProbeConfig.MetricConfig();
-        threadName.setName("threadName");
-        threadName.setDescription("Thread name");
-        threadName.setSource("threadName");
-        threadName.setType("string");
-        threadName.setCapturePoint("before");
-        metrics.add(threadName);
-        
-        config.setMetrics(metrics);
-        return config;
-    }
-
     /**
      * 获取探针配置
      */
@@ -271,13 +223,7 @@ public class ProbeManager {
      */
     private void initializeProbe(ProbeConfig config) {
         try {
-            // 阶段2：创建真实的配置驱动拦截器
-            ConfigurableMethodInterceptor interceptor = new ConfigurableMethodInterceptor(config);
-            activeProbes.put(config.getName(), interceptor);
-
-            // 注册到拦截器管理器
-            InterceptorManager.getInstance().registerInterceptor(interceptor);
-
+            activeProbes.put(config.getName(), null);
             System.out.println("Initialized probe: " + config.getName());
         } catch (Exception e) {
             System.err.println("Failed to initialize probe: " + config.getName() + ", error: " + e.getMessage());

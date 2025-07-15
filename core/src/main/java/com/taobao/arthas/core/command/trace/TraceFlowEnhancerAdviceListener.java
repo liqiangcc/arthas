@@ -17,12 +17,7 @@ public class TraceFlowEnhancerAdviceListener extends AdviceListenerAdapter {
     private final CommandProcess process;
     private final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
     private final TraceManager traceManager = TraceManager.getInstance();
-    private final TraceResultCollector resultCollector = TraceResultCollector.getInstance();
 
-    // 简化版本：使用ThreadLocal存储开始时间
-    private final ThreadLocal<Long> startTimeHolder = new ThreadLocal<>();
-    private final ThreadLocal<TraceNode> nodeHolder = new ThreadLocal<>();
-    
     public TraceFlowEnhancerAdviceListener(TraceFlowCommand command, CommandProcess process) {
         this.command = command;
         this.process = process;
@@ -30,98 +25,54 @@ public class TraceFlowEnhancerAdviceListener extends AdviceListenerAdapter {
     
     @Override
     public void before(ClassLoader loader, Class<?> clazz, ArthasMethod method, Object target, Object[] args) throws Throwable {
-        long startTime = System.currentTimeMillis();
-        
+        System.out.println("[DEBUG] before called for: " + clazz.getName() + "." + method.getName());
         // 阶段3：启动链路跟踪节点
         String nodeType = determineNodeType(clazz.getName());
         String methodSignature = clazz.getName() + "." + method.getName();
-
-        // 配置驱动：检查是否是跟踪入口
-        boolean isEntry = isEntryMethod(clazz.getName(), method.getName());
-
-        // 关键逻辑：只有当前线程没有Trace ID时，入口方法才真正作为入口处理
-        if (isEntry && traceManager.getCurrentTraceId() == null) {
-            traceManager.startTrace(clazz.getName(), method.getName()); // 记录第一个入口方法
-        }
-
-        TraceNode node = traceManager.startNode(nodeType, methodSignature);
-        
-        // 存储到线程本地变量
-        startTimeHolder.set(startTime);
-        nodeHolder.set(node);
-        
-        // 阶段3：实时输出拦截信息
-        outputInterceptionInfo(clazz, method, target, args, startTime, nodeType);
-
-        // 注意：不在这里增加计数，计数应该在完整的trace结束时进行
+        traceManager.startNode(nodeType, methodSignature);
     }
     
     @Override
     public void afterReturning(ClassLoader loader, Class<?> clazz, ArthasMethod method, Object target, Object[] args, Object returnObject) throws Throwable {
-        try {
-            Long startTime = startTimeHolder.get();
-            TraceNode node = nodeHolder.get();
-
-            if (startTime != null && node != null) {
-                long endTime = System.currentTimeMillis();
-                long executionTime = endTime - startTime;
-
-                // 阶段3：结束链路跟踪节点
-                populateNodeAttributes(node, clazz.getName(), target, args, returnObject, executionTime);
-                traceManager.endNode(node);
-
-                // 显示执行完成信息
-                if (command.isVerbose()) {
-                    process.write("  Execution Time: " + executionTime + "ms\n");
-                    process.write("  Completed at: " + dateFormat.format(new Date(endTime)) + "\n");
-                }
-
-                // 配置驱动：检查是否是出口方法，并验证与入口方法的关联
-                String currentMethodSignature = clazz.getName() + "." + method.getName();
-                if (isExitMethod(clazz.getName(), method.getName()) &&
-                    isMatchingExitMethod(currentMethodSignature)) {
-                    traceManager.endTrace();
-
-                    // 完整的trace结束，增加计数
-                    process.times().incrementAndGet();
-                    if (isLimitExceeded(command.getCount() != null ? command.getCount() : 1, process.times().get())) {
-                        abortProcess(process, command.getCount() != null ? command.getCount() : 1);
-                    }
-                }
-            }
-        } finally {
-            startTimeHolder.remove();
-            nodeHolder.remove();
-        }
+        after(loader, clazz, method, target, args, returnObject, null);
     }
     
     @Override
     public void afterThrowing(ClassLoader loader, Class<?> clazz, ArthasMethod method, Object target, Object[] args, Throwable throwable) throws Throwable {
-        try {
-            TraceNode node = nodeHolder.get();
-            if (node != null) {
-                node.setException(throwable);
-                traceManager.endNode(node);
+        after(loader, clazz, method, target, args, null, throwable);
+    }
+
+    private void after(ClassLoader loader, Class<?> clazz, ArthasMethod method, Object target, Object[] args , Object returnObject,Throwable throwable) {
+        System.out.println("[DEBUG] after called for: " + clazz.getName() + "." + method.getName());
+        TraceNode node = traceManager.finishedNode();
+        if (node != null) {
+            // 阶段3：结束链路跟踪节点
+            node.setException(throwable);
+            populateNodeAttributes(node, clazz.getName(), target, args, returnObject);
+            // 显示执行完成信息
+            if (command.isVerbose()) {
+                process.write("  Execution Time: " + node.getEndTime() + "ms\n");
+                process.write("  Completed at: " + dateFormat.format(new Date(node.getEndTime())) + "\n");
             }
 
-            // 显示异常信息
-            process.write("  Exception: " + throwable.getMessage() + "\n");
-
-            // 配置驱动：如果是跟踪入口且发生异常，也要清理跟踪上下文并增加计数
-            if (isTraceEntry(clazz.getName(), method.getName())) {
+            // 基于nodeStack的出口判断：检查是否是trace的根节点
+            boolean isTraceRoot = isTraceRootNode(node);
+            if (isTraceRoot) {
+                if (command.isVerbose()) {
+                    process.write("[DEBUG] Trace root exit detected, outputting tree trace for: " + node.getMethodSignature() + "\n");
+                }
+                // 输出完整的树状trace结果
+                outputTreeTrace();
                 traceManager.endTrace();
-
-                // 完整的trace结束（虽然有异常），增加计数
+                // 完整的trace结束，增加计数
                 process.times().incrementAndGet();
                 if (isLimitExceeded(command.getCount() != null ? command.getCount() : 1, process.times().get())) {
                     abortProcess(process, command.getCount() != null ? command.getCount() : 1);
                 }
             }
-        } finally {
-            startTimeHolder.remove();
-            nodeHolder.remove();
         }
     }
+
     
     /**
      * 阶段3：确定节点类型（完全配置驱动）
@@ -157,214 +108,6 @@ public class TraceFlowEnhancerAdviceListener extends AdviceListenerAdapter {
     }
 
     /**
-     * 配置驱动：判断是否是入口方法
-     */
-    private boolean isEntryMethod(String className, String methodName) {
-        try {
-            ProbeManager probeManager = new ProbeManager();
-            probeManager.initializeProbes();
-
-            // 遍历所有探针配置，查找入口方法
-            for (ProbeConfig config : probeManager.getAllProbeConfigs().values()) {
-                if (!config.isEnabled() || !config.isTraceEntry()) {
-                    continue;
-                }
-
-                // 检查入口方法配置
-                if (config.getEntryMethods() != null) {
-                    for (ProbeConfig.MethodConfig entryMethod : config.getEntryMethods()) {
-                        if (className.equals(entryMethod.getClassName()) &&
-                            methodName.equals(entryMethod.getMethodName())) {
-                            return true;
-                        }
-                    }
-                }
-            }
-
-        } catch (Exception e) {
-            System.err.println("Error checking entry method: " + e.getMessage());
-        }
-
-        return false;
-    }
-
-    /**
-     * 配置驱动：判断是否是出口方法
-     */
-    private boolean isExitMethod(String className, String methodName) {
-        try {
-            ProbeManager probeManager = new ProbeManager();
-            probeManager.initializeProbes();
-
-            // 遍历所有探针配置，查找出口方法
-            for (ProbeConfig config : probeManager.getAllProbeConfigs().values()) {
-                if (!config.isEnabled() || !config.isTraceExit()) {
-                    continue;
-                }
-
-                // 检查出口方法配置
-                if (config.getExitMethods() != null) {
-                    for (ProbeConfig.MethodConfig exitMethod : config.getExitMethods()) {
-                        if (className.equals(exitMethod.getClassName()) &&
-                            methodName.equals(exitMethod.getMethodName())) {
-                            return true;
-                        }
-                    }
-                }
-            }
-
-        } catch (Exception e) {
-            System.err.println("Error checking exit method: " + e.getMessage());
-        }
-
-        return false;
-    }
-
-    /**
-     * 配置驱动：验证出口方法是否与第一个入口方法匹配
-     * 一次跟踪中，只有与第一个入口方法对应的出口方法才能结束跟踪
-     */
-    private boolean isMatchingExitMethod(String currentMethodSignature) {
-        String entryClassName = traceManager.getEntryClassName();
-        String entryMethodName = traceManager.getEntryMethodName();
-
-        if (entryClassName == null || entryMethodName == null) {
-            return false;
-        }
-
-        try {
-            ProbeManager probeManager = new ProbeManager();
-            probeManager.initializeProbes();
-
-            // 遍历所有探针配置，查找与第一个入口方法对应的出口方法
-            for (ProbeConfig config : probeManager.getAllProbeConfigs().values()) {
-                if (!config.isEnabled() || !config.isTraceExit()) {
-                    continue;
-                }
-
-                // 检查是否有匹配的入口方法
-                boolean hasMatchingEntry = false;
-                if (config.getEntryMethods() != null) {
-                    for (ProbeConfig.MethodConfig entryMethod : config.getEntryMethods()) {
-                        if (entryClassName.equals(entryMethod.getClassName()) &&
-                            entryMethodName.equals(entryMethod.getMethodName())) {
-                            hasMatchingEntry = true;
-                            break;
-                        }
-                    }
-                }
-
-                // 如果找到匹配的入口方法，检查对应的出口方法
-                if (hasMatchingEntry && config.getExitMethods() != null) {
-                    for (ProbeConfig.MethodConfig exitMethod : config.getExitMethods()) {
-                        String exitMethodSig = exitMethod.getClassName() + "." + exitMethod.getMethodName();
-                        if (currentMethodSignature.equals(exitMethodSig)) {
-                            return true;
-                        }
-                    }
-                }
-            }
-
-        } catch (Exception e) {
-            System.err.println("Error checking matching exit method: " + e.getMessage());
-        }
-
-        return false;
-    }
-
-    /**
-     * 配置驱动：判断是否是跟踪入口（兼容旧方法）
-     */
-    private boolean isTraceEntry(String className, String methodName) {
-        try {
-            ProbeManager probeManager = new ProbeManager();
-            probeManager.initializeProbes();
-
-            // 遍历所有探针配置，查找标记为traceEntry的探针
-            for (ProbeConfig config : probeManager.getAllProbeConfigs().values()) {
-                if (!config.isEnabled() || !config.isTraceEntry()) {
-                    continue;
-                }
-
-                // 检查当前类和方法是否匹配这个探针的目标
-                for (ProbeConfig.MetricConfig metric : config.getMetrics()) {
-                    if (metric.getTargets() != null) {
-                        for (ProbeConfig.TargetConfig target : metric.getTargets()) {
-                            if (className.equals(target.getClassName())) {
-                                // 检查方法是否匹配
-                                if (target.getMethods() != null) {
-                                    for (String method : target.getMethods()) {
-                                        if (methodName.matches(method.replace("*", ".*"))) {
-                                            return true;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-        } catch (Exception e) {
-            System.err.println("Error checking trace entry: " + e.getMessage());
-        }
-
-        return false;
-    }
-
-    /**
-     * 配置驱动：判断请求是否真正结束
-     */
-    private boolean isRequestEnd(String className, String methodName) {
-        // 1. 必须是跟踪入口
-        if (!isTraceEntry(className, methodName)) {
-            return false;
-        }
-
-        // 2. 检查是否是最外层的HTTP调用
-        // 通过检查当前线程的调用栈深度来判断
-        try {
-            String currentTraceId = traceManager.getCurrentTraceId();
-            if (currentTraceId == null) {
-                return false;
-            }
-
-            // 获取当前线程的节点栈
-            // 如果栈中只有当前节点，说明这是最外层调用
-            return isOutermostCall(className, methodName);
-
-        } catch (Exception e) {
-            // 如果检查失败，保守地认为是请求结束
-            return true;
-        }
-    }
-
-    /**
-     * 检查是否是最外层调用
-     */
-    private boolean isOutermostCall(String className, String methodName) {
-        try {
-            // 方法1：检查调用栈深度
-            StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
-            int httpServletCallCount = 0;
-
-            for (StackTraceElement element : stackTrace) {
-                if (element.getClassName().equals(className) &&
-                    element.getMethodName().equals(methodName)) {
-                    httpServletCallCount++;
-                }
-            }
-
-            // 如果调用栈中只有一个HttpServlet.service调用，说明是最外层
-            return httpServletCallCount <= 1;
-
-        } catch (Exception e) {
-            // 如果检查失败，保守地认为是最外层调用
-            return true;
-        }
-    }
-
-    /**
      * 从探针配置中获取节点类型（配置驱动）
      */
     private String getNodeTypeFromProbeConfig(ProbeConfig config) {
@@ -388,43 +131,96 @@ public class TraceFlowEnhancerAdviceListener extends AdviceListenerAdapter {
     }
     
     /**
-     * 阶段3：输出拦截信息
+     * 输出树状trace结果
      */
-    private void outputInterceptionInfo(Class<?> clazz, ArthasMethod method, Object target, Object[] args, long startTime, String nodeType) {
-        StringBuilder output = new StringBuilder();
-        output.append("\n").append(repeat("=", 60)).append("\n");
-        output.append("[").append(dateFormat.format(new Date(startTime))).append("] ");
-        output.append("[").append(nodeType).append("]\n");
-        output.append("  Method: ").append(clazz.getName()).append(".").append(method.getName()).append("\n");
-        output.append("  Thread: ").append(Thread.currentThread().getName()).append("\n");
-        
-        // 显示参数
-        if (args != null && args.length > 0) {
-            output.append("  Args: ").append(formatArgs(args)).append("\n");
+    private void outputTreeTrace() {
+        try {
+            String traceId = traceManager.getCurrentTraceId();
+            if (traceId == null) {
+                return;
+            }
+
+            // 获取trace上下文中的所有节点
+            TraceManager.TraceContext context = traceManager.getTraceContext(traceId);
+            if (context == null || context.getRootNodes().isEmpty()) {
+                return;
+            }
+
+            StringBuilder output = new StringBuilder();
+            output.append("\n").append(repeat("=", 80)).append("\n");
+            output.append("Trace ID: ").append(traceId).append("\n");
+            output.append("Thread: ").append(Thread.currentThread().getName()).append("\n");
+            output.append("Total Nodes: ").append(countTotalNodes(context.getRootNodes())).append("\n");
+            output.append(repeat("-", 80)).append("\n");
+
+            // 构建树状结构输出
+            buildTreeOutput(context.getRootNodes(), output, "", true);
+
+            output.append(repeat("=", 80)).append("\n");
+            process.write(output.toString());
+
+        } catch (Exception e) {
+            process.write("Error outputting tree trace: " + e.getMessage() + "\n");
         }
-        
-        // 显示Trace ID
-        String traceId = traceManager.getCurrentTraceId();
-        if (traceId != null) {
-            output.append("  Trace ID: ").append(traceId).append("\n");
-        }
-        
-        output.append(repeat("=", 60)).append("\n");
-        process.write(output.toString());
     }
-    
+
+    /**
+     * 递归构建树状输出
+     */
+    private void buildTreeOutput(java.util.List<TraceNode> nodes, StringBuilder output, String prefix, boolean isRoot) {
+        if (nodes == null || nodes.isEmpty()) {
+            return;
+        }
+
+        for (int i = 0; i < nodes.size(); i++) {
+            TraceNode node = nodes.get(i);
+            boolean isLast = (i == nodes.size() - 1);
+
+            // 输出当前节点
+            if (!isRoot) {
+                output.append(prefix);
+                output.append(isLast ? "+-- " : "|-- ");
+            }
+
+            // 时间戳
+            output.append("[").append(dateFormat.format(new Date(node.getStartTime()))).append("] ");
+
+            // 节点类型
+            output.append("[").append(node.getNodeType()).append("] ");
+
+            // 方法签名（简化显示）
+            String methodName = simplifyMethodName(node.getMethodSignature());
+            output.append(methodName);
+
+            // 执行时间
+            if (node.getExecutionTime() > 0) {
+                output.append(" (").append(node.getExecutionTime()).append("ms)");
+            }
+
+            // 参数信息（简化显示）
+            if (node.getArgs() != null && node.getArgs().length > 0) {
+                String argsStr = formatArgs(node.getArgs());
+                if (!argsStr.isEmpty()) {
+                    output.append(" ").append(argsStr);
+                }
+            }
+
+            output.append("\n");
+
+            // 递归输出子节点
+            String childPrefix = isRoot ? "" : (prefix + (isLast ? "    " : "|   "));
+            buildTreeOutput(node.getChildren(), output, childPrefix, false);
+        }
+    }
+
     /**
      * 阶段3：填充节点属性（完全配置驱动）
      */
-    private void populateNodeAttributes(TraceNode node, String className, Object target, Object[] args, Object returnObject, long executionTime) {
+    private void populateNodeAttributes(TraceNode node, String className, Object target, Object[] args, Object returnObject) {
         try {
             // 配置驱动：根据探针配置中的指标定义来提取属性
             populateAttributesFromProbeConfig(node, className, target, args, returnObject);
-
             // 通用属性
-            node.setAttribute("executionTime", executionTime);
-            node.setAttribute("threadName", Thread.currentThread().getName());
-
         } catch (Exception e) {
             // 忽略属性填充错误
         }
@@ -519,7 +315,48 @@ public class TraceFlowEnhancerAdviceListener extends AdviceListenerAdapter {
 
         return null;
     }
-    
+
+    /**
+     * 统计总节点数
+     */
+    private int countTotalNodes(java.util.List<TraceNode> nodes) {
+        if (nodes == null || nodes.isEmpty()) {
+            return 0;
+        }
+
+        int count = nodes.size();
+        for (TraceNode node : nodes) {
+            count += countTotalNodes(node.getChildren());
+        }
+        return count;
+    }
+
+    /**
+     * 简化方法名显示
+     */
+    private String simplifyMethodName(String methodSignature) {
+        if (methodSignature == null) {
+            return "unknown";
+        }
+
+        // 提取类名和方法名
+        int lastDot = methodSignature.lastIndexOf('.');
+        if (lastDot > 0) {
+            String className = methodSignature.substring(0, lastDot);
+            String methodName = methodSignature.substring(lastDot + 1);
+
+            // 简化类名（只保留最后一部分）
+            int classLastDot = className.lastIndexOf('.');
+            if (classLastDot > 0) {
+                className = className.substring(classLastDot + 1);
+            }
+
+            return className + "." + methodName;
+        }
+
+        return methodSignature;
+    }
+
 
     
 
@@ -559,4 +396,32 @@ public class TraceFlowEnhancerAdviceListener extends AdviceListenerAdapter {
         }
         return sb.toString();
     }
+
+    /**
+     * 基于nodeStack判断节点是否是trace的根节点
+     * 根节点是trace的入口点，也是最后一个退出的节点
+     */
+    private boolean isTraceRootNode(TraceNode node) {
+        if (node == null) {
+            return false;
+        }
+
+        try {
+            // 判断节点是否是根节点
+            // 1. 节点的parent为null
+            // 2. 节点的depth为0
+            // 3. 节点在TraceContext.rootNodes中
+
+            // 简单判断：节点的depth为0
+            return node.getDepth() == 0 ||  node.getParent() == null;
+
+        } catch (Exception e) {
+            if (command.isVerbose()) {
+                process.write("[DEBUG] Error in isTraceRootNode: " + e.getMessage() + "\n");
+            }
+            return false;
+        }
+    }
+
+
 }

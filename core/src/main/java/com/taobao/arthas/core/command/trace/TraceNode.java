@@ -19,6 +19,8 @@ public class TraceNode {
     private List<TraceNode> children; // 子节点列表
     private Map<String, Object> attributes; // 节点属性
     private Throwable exception;      // 异常信息
+    private Object[] args;            // 方法参数
+    private int depth = 0;            // 调用深度
     
     public TraceNode(String nodeType, String methodSignature) {
         this.nodeType = nodeType;
@@ -237,7 +239,19 @@ public class TraceNode {
     public void setException(Throwable exception) {
         this.exception = exception;
     }
-    
+
+    public Object[] getArgs() {
+        return args;
+    }
+
+    public void setArgs(Object[] args) {
+        this.args = args;
+    }
+
+    public void setDepth(int depth) {
+        this.depth = depth;
+    }
+
     @Override
     public String toString() {
         return String.format("TraceNode{type=%s, method=%s, time=%dms, children=%d}", 

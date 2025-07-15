@@ -12,6 +12,7 @@ public class ProbeConfig {
     private boolean enabled = true;
     private boolean traceEntry = false;  // 是否作为跟踪入口（默认false）
     private boolean traceExit = false;   // 是否作为跟踪出口（默认false）
+    private String exitStrategy = "first_call";  // 出口策略：first_call（第一次调用）, last_call（最后一次调用）
     private List<MethodConfig> entryMethods; // 入口方法配置
     private List<MethodConfig> exitMethods;  // 出口方法配置
     private List<MetricConfig> metrics;

@@ -4,6 +4,7 @@
   "enabled": true,
   "traceEntry": true,
   "traceExit": true,
+  "traceTimeout": 5000,
   "entryMethods": [
     {
       "className": "javax.servlet.http.HttpServlet",

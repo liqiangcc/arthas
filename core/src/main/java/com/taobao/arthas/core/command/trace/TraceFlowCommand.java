@@ -190,21 +190,6 @@ public class TraceFlowCommand extends EnhancerCommand {
             // 初始化探针配置
             probeManager.initializeProbes();
 
-            // 初始化拦截器管理器
-            InterceptorManager interceptorManager = InterceptorManager.getInstance();
-            if (!interceptorManager.isInitialized()) {
-                // 获取Instrumentation实例
-                java.lang.instrument.Instrumentation instrumentation =
-                    com.taobao.arthas.core.server.ArthasBootstrap.getInstance().getInstrumentation();
-
-                interceptorManager.initialize(instrumentation);
-
-                if (verbose) {
-                    process.write("Interceptor manager initialized with " +
-                                interceptorManager.getInterceptorCount() + " interceptors\n");
-                }
-            }
-
             if (verbose) {
                 process.write("Probes initialized successfully\n");
             }

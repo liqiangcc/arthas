@@ -14,11 +14,8 @@ public class TraceManager {
     private final AtomicLong traceCounter = new AtomicLong(0);
     private final ConcurrentHashMap<String, TraceContext> activeTraces = new ConcurrentHashMap<>();
     private final ThreadLocal<String> currentTraceId = new ThreadLocal<>();
-    private final ThreadLocal<Stack<TraceNode>> nodeStack = new ThreadLocal<>();
-    private final ThreadLocal<String> entryMethodSignature = new ThreadLocal<>();  // 记录第一个入口方法签名
-    private final ThreadLocal<String> entryClassName = new ThreadLocal<>();      // 记录第一个入口方法的类名
-    private final ThreadLocal<String> entryMethodName = new ThreadLocal<>();     // 记录第一个入口方法的方法名
-    
+    private final ThreadLocal<Stack<TraceNode>> nodeStack = new ThreadLocal<>();     // 记录第一个入口方法的方法名
+
     private TraceManager() {}
 
     public static TraceManager getInstance() {
@@ -28,37 +25,20 @@ public class TraceManager {
     /**
      * 开始新的跟踪（请求入口）
      */
-    public String startTrace(String className, String methodName) {
+    public String startTrace() {
         // 如果当前线程已经有Trace ID，直接返回（避免重复创建）
         String existingTraceId = currentTraceId.get();
         if (existingTraceId != null) {
             return existingTraceId;
         }
-
         String traceId = generateTraceId();
         TraceContext context = new TraceContext(traceId);
         activeTraces.put(traceId, context);
-
         // 设置当前线程的Trace ID
         currentTraceId.set(traceId);
-
         // 初始化节点栈
         nodeStack.set(new Stack<>());
-
-        // 记录第一个入口方法的详细信息，用于匹配对应的出口方法
-        String methodSignature = className + "." + methodName;
-        entryMethodSignature.set(methodSignature);
-        entryClassName.set(className);
-        entryMethodName.set(methodName);
-
         return traceId;
-    }
-
-    /**
-     * 兼容旧版本的startTrace方法
-     */
-    public String startTrace() {
-        return startTrace("unknown", "unknown");
     }
 
     /**
@@ -70,34 +50,16 @@ public class TraceManager {
             // 清理当前线程的跟踪上下文
             currentTraceId.remove();
             nodeStack.remove();
-            entryMethodSignature.remove();
-            entryClassName.remove();
-            entryMethodName.remove();
-
             // 可选：从活跃跟踪中移除（如果需要释放内存）
-            // activeTraces.remove(traceId);
+             activeTraces.remove(traceId);
         }
     }
 
     /**
-     * 获取当前线程的第一个入口方法签名
+     * 获取指定trace ID的上下文
      */
-    public String getEntryMethodSignature() {
-        return entryMethodSignature.get();
-    }
-
-    /**
-     * 获取当前线程的第一个入口方法类名
-     */
-    public String getEntryClassName() {
-        return entryClassName.get();
-    }
-
-    /**
-     * 获取当前线程的第一个入口方法名
-     */
-    public String getEntryMethodName() {
-        return entryMethodName.get();
+    public TraceContext getTraceContext(String traceId) {
+        return activeTraces.get(traceId);
     }
 
 
@@ -109,12 +71,7 @@ public class TraceManager {
         return currentTraceId.get();
     }
 
-    /**
-     * 获取指定的跟踪上下文
-     */
-    public TraceContext getTraceContext(String traceId) {
-        return activeTraces.get(traceId);
-    }
+
 
     /**
      * 开始一个新的跟踪节点
@@ -133,16 +90,21 @@ public class TraceManager {
 
         TraceNode node = new TraceNode(nodeType, methodSignature);
         node.setStartTime(System.currentTimeMillis());
+        node.setThreadName(Thread.currentThread().getName());
+        // 配置驱动：记录方法调用计数
+        context.incrementMethodCallCount(methodSignature);
 
-        // 处理父子关系
+        // 处理父子关系和调用深度
         Stack<TraceNode> stack = nodeStack.get();
         if (stack != null && !stack.isEmpty()) {
             TraceNode parent = stack.peek();
             parent.addChild(node);
             node.setParent(parent);
+            node.setDepth(parent.getDepth() + 1);  // 设置调用深度
         } else {
             // 根节点
-            context.setRootNode(node);
+            context.addRootNode(node);
+            node.setDepth(0);  // 根节点深度为0
         }
 
         if (stack != null) {
@@ -155,17 +117,14 @@ public class TraceManager {
     /**
      * 结束当前跟踪节点
      */
-    public void endNode(TraceNode node) {
-        if (node == null) {
-            return;
-        }
-
-        node.setEndTime(System.currentTimeMillis());
-
+    public TraceNode finishedNode() {
         Stack<TraceNode> stack = nodeStack.get();
-        if (stack != null && !stack.isEmpty() && stack.peek() == node) {
-            stack.pop();
+        if (stack != null && !stack.isEmpty()) {
+            TraceNode traceNode = stack.pop();
+            traceNode.setEndTime(System.currentTimeMillis());
+            return traceNode;
         }
+        return null;
     }
 
     /**
@@ -209,6 +168,7 @@ public class TraceManager {
         traceCounter.set(0);
     }
 
+
     /**
      * 跟踪上下文 - 阶段3增强版本
      */
@@ -218,7 +178,10 @@ public class TraceManager {
         private long endTime;
         private boolean completed;
         private TraceNode rootNode;
+        private List<TraceNode> rootNodes = new ArrayList<>();  // 支持多个根节点
         private Map<String, Object> attributes;
+        private Map<String, Integer> methodCallCounts = new HashMap<>();  // 方法调用计数
+        private Map<String, Integer> completedMethodCalls = new HashMap<>();  // 已完成的方法调用计数
 
         public TraceContext(String traceId) {
             this.traceId = traceId;
@@ -229,6 +192,31 @@ public class TraceManager {
         public void markEnd() {
             this.endTime = System.currentTimeMillis();
             this.completed = true;
+        }
+
+        /**
+         * 增加方法调用计数
+         */
+        public void incrementMethodCallCount(String methodSignature) {
+            Integer count = methodCallCounts.getOrDefault(methodSignature, 0);
+            methodCallCounts.put(methodSignature, count + 1);
+        }
+
+        /**
+         * 增加已完成的方法调用计数
+         */
+        public void incrementCompletedMethodCall(String methodSignature) {
+            Integer count = completedMethodCalls.getOrDefault(methodSignature, 0);
+            completedMethodCalls.put(methodSignature, count + 1);
+        }
+
+        /**
+         * 检查方法调用是否全部完成
+         */
+        public boolean areAllMethodCallsCompleted(String methodSignature) {
+            Integer totalCalls = methodCallCounts.getOrDefault(methodSignature, 0);
+            Integer completedCalls = completedMethodCalls.getOrDefault(methodSignature, 0);
+            return totalCalls > 0 && totalCalls.equals(completedCalls);
         }
 
         public long getDuration() {
@@ -273,7 +261,22 @@ public class TraceManager {
         public boolean isCompleted() { return completed; }
 
         public TraceNode getRootNode() { return rootNode; }
-        public void setRootNode(TraceNode rootNode) { this.rootNode = rootNode; }
+        public void setRootNode(TraceNode rootNode) {
+            this.rootNode = rootNode;
+            if (rootNode != null && !rootNodes.contains(rootNode)) {
+                rootNodes.add(rootNode);
+            }
+        }
+
+        public List<TraceNode> getRootNodes() { return rootNodes; }
+        public void addRootNode(TraceNode rootNode) {
+            if (rootNode != null && !rootNodes.contains(rootNode)) {
+                rootNodes.add(rootNode);
+                if (this.rootNode == null) {
+                    this.rootNode = rootNode;  // 第一个根节点作为主根节点
+                }
+            }
+        }
 
         public Map<String, Object> getAttributes() { return attributes; }
         public void setAttribute(String key, Object value) { attributes.put(key, value); }

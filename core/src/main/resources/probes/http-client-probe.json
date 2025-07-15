@@ -4,6 +4,13 @@
   "enabled": true,
   "traceEntry": false,
   "traceExit": true,
+  "exitStrategy": "last_call",
+  "exitMethods": [
+    {
+      "className": "org.apache.http.impl.client.CloseableHttpClient",
+      "methodName": "execute"
+    }
+  ],
   "output": {
     "type": "HTTP_CLIENT",
     "format": "tree"
