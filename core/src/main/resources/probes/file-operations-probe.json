@@ -2,6 +2,12 @@
   "name": "File Operations Probe",
   "description": "Monitor file read/write operations",
   "enabled": true,
+  "traceEntry": false,
+  "traceExit": false,
+  "output": {
+    "type": "FILE_OPERATION",
+    "format": "tree"
+  },
   "metrics": [
     {
       "name": "startTime",

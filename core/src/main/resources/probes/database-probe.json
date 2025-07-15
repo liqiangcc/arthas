@@ -2,6 +2,12 @@
   "name": "Database Probe",
   "description": "Monitor JDBC database operations",
   "enabled": true,
+  "traceEntry": false,
+  "traceExit": false,
+  "output": {
+    "type": "DATABASE",
+    "format": "tree"
+  },
   "metrics": [
     {
       "name": "startTime",

@@ -2,6 +2,32 @@
   "name": "HTTP Server Probe",
   "description": "Monitor HTTP request reception and processing",
   "enabled": true,
+  "traceEntry": true,
+  "traceExit": true,
+  "entryMethods": [
+    {
+      "className": "javax.servlet.http.HttpServlet",
+      "methodName": "service"
+    },
+    {
+      "className": "org.springframework.web.servlet.FrameworkServlet",
+      "methodName": "service"
+    }
+  ],
+  "exitMethods": [
+    {
+      "className": "javax.servlet.http.HttpServlet",
+      "methodName": "service"
+    },
+    {
+      "className": "org.springframework.web.servlet.FrameworkServlet",
+      "methodName": "service"
+    }
+  ],
+  "output": {
+    "type": "HTTP_SERVER",
+    "format": "tree"
+  },
   "metrics": [
     {
       "name": "startTime",

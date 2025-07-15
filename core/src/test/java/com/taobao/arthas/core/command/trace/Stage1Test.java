@@ -27,7 +27,7 @@ public class Stage1Test {
         probeManager = new ProbeManager();
         sourceParser = new SourceExpressionParser();
         filterEngine = new FilterEngine();
-        traceManager = new TraceManager();
+        traceManager = TraceManager.getInstance();
         outputFormatter = new OutputFormatter();
     }
 

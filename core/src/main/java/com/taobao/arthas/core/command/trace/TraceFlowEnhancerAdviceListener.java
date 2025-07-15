@@ -35,6 +35,15 @@ public class TraceFlowEnhancerAdviceListener extends AdviceListenerAdapter {
         // 阶段3：启动链路跟踪节点
         String nodeType = determineNodeType(clazz.getName());
         String methodSignature = clazz.getName() + "." + method.getName();
+
+        // 配置驱动：检查是否是跟踪入口
+        boolean isEntry = isEntryMethod(clazz.getName(), method.getName());
+
+        // 关键逻辑：只有当前线程没有Trace ID时，入口方法才真正作为入口处理
+        if (isEntry && traceManager.getCurrentTraceId() == null) {
+            traceManager.startTrace(clazz.getName(), method.getName()); // 记录第一个入口方法
+        }
+
         TraceNode node = traceManager.startNode(nodeType, methodSignature);
         
         // 存储到线程本地变量
@@ -43,12 +52,8 @@ public class TraceFlowEnhancerAdviceListener extends AdviceListenerAdapter {
         
         // 阶段3：实时输出拦截信息
         outputInterceptionInfo(clazz, method, target, args, startTime, nodeType);
-        
-        // 增加计数
-        process.times().incrementAndGet();
-        if (isLimitExceeded(command.getCount() != null ? command.getCount() : 100, process.times().get())) {
-            abortProcess(process, command.getCount() != null ? command.getCount() : 100);
-        }
+
+        // 注意：不在这里增加计数，计数应该在完整的trace结束时进行
     }
     
     @Override
@@ -70,6 +75,19 @@ public class TraceFlowEnhancerAdviceListener extends AdviceListenerAdapter {
                     process.write("  Execution Time: " + executionTime + "ms\n");
                     process.write("  Completed at: " + dateFormat.format(new Date(endTime)) + "\n");
                 }
+
+                // 配置驱动：检查是否是出口方法，并验证与入口方法的关联
+                String currentMethodSignature = clazz.getName() + "." + method.getName();
+                if (isExitMethod(clazz.getName(), method.getName()) &&
+                    isMatchingExitMethod(currentMethodSignature)) {
+                    traceManager.endTrace();
+
+                    // 完整的trace结束，增加计数
+                    process.times().incrementAndGet();
+                    if (isLimitExceeded(command.getCount() != null ? command.getCount() : 1, process.times().get())) {
+                        abortProcess(process, command.getCount() != null ? command.getCount() : 1);
+                    }
+                }
             }
         } finally {
             startTimeHolder.remove();
@@ -88,6 +106,17 @@ public class TraceFlowEnhancerAdviceListener extends AdviceListenerAdapter {
 
             // 显示异常信息
             process.write("  Exception: " + throwable.getMessage() + "\n");
+
+            // 配置驱动：如果是跟踪入口且发生异常，也要清理跟踪上下文并增加计数
+            if (isTraceEntry(clazz.getName(), method.getName())) {
+                traceManager.endTrace();
+
+                // 完整的trace结束（虽然有异常），增加计数
+                process.times().incrementAndGet();
+                if (isLimitExceeded(command.getCount() != null ? command.getCount() : 1, process.times().get())) {
+                    abortProcess(process, command.getCount() != null ? command.getCount() : 1);
+                }
+            }
         } finally {
             startTimeHolder.remove();
             nodeHolder.remove();
@@ -125,6 +154,214 @@ public class TraceFlowEnhancerAdviceListener extends AdviceListenerAdapter {
 
         // 如果配置中没有找到，返回通用类型
         return "METHOD_CALL";
+    }
+
+    /**
+     * 配置驱动：判断是否是入口方法
+     */
+    private boolean isEntryMethod(String className, String methodName) {
+        try {
+            ProbeManager probeManager = new ProbeManager();
+            probeManager.initializeProbes();
+
+            // 遍历所有探针配置，查找入口方法
+            for (ProbeConfig config : probeManager.getAllProbeConfigs().values()) {
+                if (!config.isEnabled() || !config.isTraceEntry()) {
+                    continue;
+                }
+
+                // 检查入口方法配置
+                if (config.getEntryMethods() != null) {
+                    for (ProbeConfig.MethodConfig entryMethod : config.getEntryMethods()) {
+                        if (className.equals(entryMethod.getClassName()) &&
+                            methodName.equals(entryMethod.getMethodName())) {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+        } catch (Exception e) {
+            System.err.println("Error checking entry method: " + e.getMessage());
+        }
+
+        return false;
+    }
+
+    /**
+     * 配置驱动：判断是否是出口方法
+     */
+    private boolean isExitMethod(String className, String methodName) {
+        try {
+            ProbeManager probeManager = new ProbeManager();
+            probeManager.initializeProbes();
+
+            // 遍历所有探针配置，查找出口方法
+            for (ProbeConfig config : probeManager.getAllProbeConfigs().values()) {
+                if (!config.isEnabled() || !config.isTraceExit()) {
+                    continue;
+                }
+
+                // 检查出口方法配置
+                if (config.getExitMethods() != null) {
+                    for (ProbeConfig.MethodConfig exitMethod : config.getExitMethods()) {
+                        if (className.equals(exitMethod.getClassName()) &&
+                            methodName.equals(exitMethod.getMethodName())) {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+        } catch (Exception e) {
+            System.err.println("Error checking exit method: " + e.getMessage());
+        }
+
+        return false;
+    }
+
+    /**
+     * 配置驱动：验证出口方法是否与第一个入口方法匹配
+     * 一次跟踪中，只有与第一个入口方法对应的出口方法才能结束跟踪
+     */
+    private boolean isMatchingExitMethod(String currentMethodSignature) {
+        String entryClassName = traceManager.getEntryClassName();
+        String entryMethodName = traceManager.getEntryMethodName();
+
+        if (entryClassName == null || entryMethodName == null) {
+            return false;
+        }
+
+        try {
+            ProbeManager probeManager = new ProbeManager();
+            probeManager.initializeProbes();
+
+            // 遍历所有探针配置，查找与第一个入口方法对应的出口方法
+            for (ProbeConfig config : probeManager.getAllProbeConfigs().values()) {
+                if (!config.isEnabled() || !config.isTraceExit()) {
+                    continue;
+                }
+
+                // 检查是否有匹配的入口方法
+                boolean hasMatchingEntry = false;
+                if (config.getEntryMethods() != null) {
+                    for (ProbeConfig.MethodConfig entryMethod : config.getEntryMethods()) {
+                        if (entryClassName.equals(entryMethod.getClassName()) &&
+                            entryMethodName.equals(entryMethod.getMethodName())) {
+                            hasMatchingEntry = true;
+                            break;
+                        }
+                    }
+                }
+
+                // 如果找到匹配的入口方法，检查对应的出口方法
+                if (hasMatchingEntry && config.getExitMethods() != null) {
+                    for (ProbeConfig.MethodConfig exitMethod : config.getExitMethods()) {
+                        String exitMethodSig = exitMethod.getClassName() + "." + exitMethod.getMethodName();
+                        if (currentMethodSignature.equals(exitMethodSig)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+        } catch (Exception e) {
+            System.err.println("Error checking matching exit method: " + e.getMessage());
+        }
+
+        return false;
+    }
+
+    /**
+     * 配置驱动：判断是否是跟踪入口（兼容旧方法）
+     */
+    private boolean isTraceEntry(String className, String methodName) {
+        try {
+            ProbeManager probeManager = new ProbeManager();
+            probeManager.initializeProbes();
+
+            // 遍历所有探针配置，查找标记为traceEntry的探针
+            for (ProbeConfig config : probeManager.getAllProbeConfigs().values()) {
+                if (!config.isEnabled() || !config.isTraceEntry()) {
+                    continue;
+                }
+
+                // 检查当前类和方法是否匹配这个探针的目标
+                for (ProbeConfig.MetricConfig metric : config.getMetrics()) {
+                    if (metric.getTargets() != null) {
+                        for (ProbeConfig.TargetConfig target : metric.getTargets()) {
+                            if (className.equals(target.getClassName())) {
+                                // 检查方法是否匹配
+                                if (target.getMethods() != null) {
+                                    for (String method : target.getMethods()) {
+                                        if (methodName.matches(method.replace("*", ".*"))) {
+                                            return true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+        } catch (Exception e) {
+            System.err.println("Error checking trace entry: " + e.getMessage());
+        }
+
+        return false;
+    }
+
+    /**
+     * 配置驱动：判断请求是否真正结束
+     */
+    private boolean isRequestEnd(String className, String methodName) {
+        // 1. 必须是跟踪入口
+        if (!isTraceEntry(className, methodName)) {
+            return false;
+        }
+
+        // 2. 检查是否是最外层的HTTP调用
+        // 通过检查当前线程的调用栈深度来判断
+        try {
+            String currentTraceId = traceManager.getCurrentTraceId();
+            if (currentTraceId == null) {
+                return false;
+            }
+
+            // 获取当前线程的节点栈
+            // 如果栈中只有当前节点，说明这是最外层调用
+            return isOutermostCall(className, methodName);
+
+        } catch (Exception e) {
+            // 如果检查失败，保守地认为是请求结束
+            return true;
+        }
+    }
+
+    /**
+     * 检查是否是最外层调用
+     */
+    private boolean isOutermostCall(String className, String methodName) {
+        try {
+            // 方法1：检查调用栈深度
+            StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
+            int httpServletCallCount = 0;
+
+            for (StackTraceElement element : stackTrace) {
+                if (element.getClassName().equals(className) &&
+                    element.getMethodName().equals(methodName)) {
+                    httpServletCallCount++;
+                }
+            }
+
+            // 如果调用栈中只有一个HttpServlet.service调用，说明是最外层
+            return httpServletCallCount <= 1;
+
+        } catch (Exception e) {
+            // 如果检查失败，保守地认为是最外层调用
+            return true;
+        }
     }
 
     /**

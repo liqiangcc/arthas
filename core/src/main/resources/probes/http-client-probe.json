@@ -2,6 +2,12 @@
   "name": "HTTP Client Probe",
   "description": "Monitor outbound HTTP requests",
   "enabled": true,
+  "traceEntry": false,
+  "traceExit": true,
+  "output": {
+    "type": "HTTP_CLIENT",
+    "format": "tree"
+  },
   "metrics": [
     {
       "name": "startTime",

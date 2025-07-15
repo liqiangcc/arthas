@@ -15,6 +15,9 @@ public class TraceManager {
     private final ConcurrentHashMap<String, TraceContext> activeTraces = new ConcurrentHashMap<>();
     private final ThreadLocal<String> currentTraceId = new ThreadLocal<>();
     private final ThreadLocal<Stack<TraceNode>> nodeStack = new ThreadLocal<>();
+    private final ThreadLocal<String> entryMethodSignature = new ThreadLocal<>();  // 记录第一个入口方法签名
+    private final ThreadLocal<String> entryClassName = new ThreadLocal<>();      // 记录第一个入口方法的类名
+    private final ThreadLocal<String> entryMethodName = new ThreadLocal<>();     // 记录第一个入口方法的方法名
     
     private TraceManager() {}
 
@@ -23,9 +26,15 @@ public class TraceManager {
     }
 
     /**
-     * 开始新的跟踪（HTTP请求入口）
+     * 开始新的跟踪（请求入口）
      */
-    public String startTrace() {
+    public String startTrace(String className, String methodName) {
+        // 如果当前线程已经有Trace ID，直接返回（避免重复创建）
+        String existingTraceId = currentTraceId.get();
+        if (existingTraceId != null) {
+            return existingTraceId;
+        }
+
         String traceId = generateTraceId();
         TraceContext context = new TraceContext(traceId);
         activeTraces.put(traceId, context);
@@ -36,8 +45,62 @@ public class TraceManager {
         // 初始化节点栈
         nodeStack.set(new Stack<>());
 
+        // 记录第一个入口方法的详细信息，用于匹配对应的出口方法
+        String methodSignature = className + "." + methodName;
+        entryMethodSignature.set(methodSignature);
+        entryClassName.set(className);
+        entryMethodName.set(methodName);
+
         return traceId;
     }
+
+    /**
+     * 兼容旧版本的startTrace方法
+     */
+    public String startTrace() {
+        return startTrace("unknown", "unknown");
+    }
+
+    /**
+     * 结束跟踪（请求出口）
+     */
+    public void endTrace() {
+        String traceId = currentTraceId.get();
+        if (traceId != null) {
+            // 清理当前线程的跟踪上下文
+            currentTraceId.remove();
+            nodeStack.remove();
+            entryMethodSignature.remove();
+            entryClassName.remove();
+            entryMethodName.remove();
+
+            // 可选：从活跃跟踪中移除（如果需要释放内存）
+            // activeTraces.remove(traceId);
+        }
+    }
+
+    /**
+     * 获取当前线程的第一个入口方法签名
+     */
+    public String getEntryMethodSignature() {
+        return entryMethodSignature.get();
+    }
+
+    /**
+     * 获取当前线程的第一个入口方法类名
+     */
+    public String getEntryClassName() {
+        return entryClassName.get();
+    }
+
+    /**
+     * 获取当前线程的第一个入口方法名
+     */
+    public String getEntryMethodName() {
+        return entryMethodName.get();
+    }
+
+
 
     /**
      * 获取当前线程的Trace ID

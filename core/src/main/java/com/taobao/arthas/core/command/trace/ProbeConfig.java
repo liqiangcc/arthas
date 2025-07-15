@@ -10,6 +10,10 @@ public class ProbeConfig {
     private String name;
     private String description;
     private boolean enabled = true;
+    private boolean traceEntry = false;  // 是否作为跟踪入口（默认false）
+    private boolean traceExit = false;   // 是否作为跟踪出口（默认false）
+    private List<MethodConfig> entryMethods; // 入口方法配置
+    private List<MethodConfig> exitMethods;  // 出口方法配置
     private List<MetricConfig> metrics;
     private OutputConfig output;
     private List<FilterConfig> filters;
@@ -46,6 +50,38 @@ public class ProbeConfig {
 
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
+    }
+
+    public boolean isTraceEntry() {
+        return traceEntry;
+    }
+
+    public void setTraceEntry(boolean traceEntry) {
+        this.traceEntry = traceEntry;
+    }
+
+    public boolean isTraceExit() {
+        return traceExit;
+    }
+
+    public void setTraceExit(boolean traceExit) {
+        this.traceExit = traceExit;
+    }
+
+    public List<MethodConfig> getEntryMethods() {
+        return entryMethods;
+    }
+
+    public void setEntryMethods(List<MethodConfig> entryMethods) {
+        this.entryMethods = entryMethods;
+    }
+
+    public List<MethodConfig> getExitMethods() {
+        return exitMethods;
+    }
+
+    public void setExitMethods(List<MethodConfig> exitMethods) {
+        this.exitMethods = exitMethods;
     }
 
     public List<MetricConfig> getMetrics() {
@@ -317,6 +353,37 @@ public class ProbeConfig {
                     "name='" + name + '\'' +
                     ", condition='" + condition + '\'' +
                     '}';
+        }
+    }
+
+    /**
+     * 方法配置类（用于入口和出口方法配置）
+     */
+    public static class MethodConfig {
+        private String className;
+        private String methodName;
+
+        public MethodConfig() {}
+
+        public MethodConfig(String className, String methodName) {
+            this.className = className;
+            this.methodName = methodName;
+        }
+
+        public String getClassName() {
+            return className;
+        }
+
+        public void setClassName(String className) {
+            this.className = className;
+        }
+
+        public String getMethodName() {
+            return methodName;
+        }
+
+        public void setMethodName(String methodName) {
+            this.methodName = methodName;
         }
     }
 }
