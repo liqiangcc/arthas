@@ -2,6 +2,7 @@ package com.taobao.arthas.core.command.trace;
 
 import java.lang.reflect.Method;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 配置驱动的方法拦截器
@@ -171,12 +172,25 @@ public class ConfigurableMethodInterceptor implements MethodInterceptor {
             context.setStartTime(System.currentTimeMillis());
             context.setThreadName(Thread.currentThread().getName());
 
+            // 阶段3：集成链路跟踪（完全配置驱动）
+            TraceManager traceManager = TraceManager.getInstance();
+            String nodeType = getNodeTypeFromConfig();
+            TraceNode node = traceManager.startNode(nodeType, context.getMethodSignature());
+
+            // 将TraceNode存储到ExecutionContext中
+            context.addMetric("traceNode", node);
+
             // 采集before阶段的指标
             metricCollector.collectBeforeMetrics(context);
 
+            // 总是输出调试信息（用于验证拦截是否工作）
+            String traceId = traceManager.getCurrentTraceId();
+            System.out.println("🔍 [INTERCEPTED] " + probeConfig.getName() + " -> " +
+                context.getMethodSignature() + " [TraceID: " + traceId + "] at " + context.getStartTime());
+
             if (isVerboseMode()) {
-                System.out.println("[DEBUG] " + probeConfig.getName() + " intercepted: " + 
-                    context.getMethodSignature() + " at " + context.getStartTime());
+                System.out.println("[DEBUG] " + probeConfig.getName() + " intercepted: " +
+                    context.getMethodSignature() + " [TraceID: " + traceId + "] at " + context.getStartTime());
             }
 
         } catch (Exception e) {
@@ -194,16 +208,35 @@ public class ConfigurableMethodInterceptor implements MethodInterceptor {
             // 设置结束时间
             context.setEndTime(System.currentTimeMillis());
 
+            // 阶段3：更新链路跟踪节点
+            TraceNode node = (TraceNode) context.getMetric("traceNode");
+            if (node != null) {
+                TraceManager traceManager = TraceManager.getInstance();
+
+                // 设置节点属性
+                populateNodeAttributes(node, context);
+
+                // 结束节点
+                traceManager.endNode(node);
+            }
+
             // 采集after阶段的指标
             metricCollector.collectAfterMetrics(context);
 
             if (isVerboseMode()) {
-                System.out.println("[DEBUG] " + probeConfig.getName() + " completed: " + 
-                    context.getMethodSignature() + " in " + context.getExecutionTime() + "ms");
+                String traceId = TraceManager.getInstance().getCurrentTraceId();
+                System.out.println("[DEBUG] " + probeConfig.getName() + " completed: " +
+                    context.getMethodSignature() + " [TraceID: " + traceId + "] in " + context.getExecutionTime() + "ms");
             }
 
-            // 输出跟踪结果
-            outputTraceResult(context);
+            // 智能输出：如果有trace-flow监听器，使用新机制；否则使用原有机制
+            if (TraceResultCollector.getInstance().getListenerCount() > 0) {
+                // 有trace-flow命令在监听，使用新的发布机制
+                publishTraceResult(context, node);
+            } else {
+                // 没有trace-flow命令，使用原有的直接输出机制
+                outputTraceResult(context);
+            }
 
         } catch (Exception e) {
             System.err.println("Error in afterMethod for " + probeConfig.getName() + ": " + e.getMessage());
@@ -271,8 +304,8 @@ public class ConfigurableMethodInterceptor implements MethodInterceptor {
         java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
         output.append("[").append(sdf.format(new java.util.Date())).append("] ");
 
-        // 探针类型
-        String probeType = probeConfig.getName().replace("探针", "").toUpperCase();
+        // 配置驱动：探针类型
+        String probeType = getNodeTypeFromConfig();
         if (isException) {
             output.append("[").append(probeType).append(" ERROR]\n");
         } else {
@@ -288,11 +321,9 @@ public class ConfigurableMethodInterceptor implements MethodInterceptor {
         // 线程信息
         output.append("  Thread: ").append(context.getThreadName()).append("\n");
 
-        // 尝试提取特定的指标信息
+        // 配置驱动：显示所有采集到的指标
         try {
-            if ("Database探针".equals(probeConfig.getName())) {
-                formatDatabaseSpecificOutput(output, context);
-            }
+            formatMetricsFromContext(output, context);
         } catch (Exception e) {
             // 忽略指标提取错误
         }
@@ -306,45 +337,182 @@ public class ConfigurableMethodInterceptor implements MethodInterceptor {
     }
 
     /**
-     * 格式化Database探针特定的输出
+     * 配置驱动：格式化所有采集到的指标
      */
-    private void formatDatabaseSpecificOutput(StringBuilder output, ExecutionContext context) {
+    private void formatMetricsFromContext(StringBuilder output, ExecutionContext context) {
         try {
-            // 尝试从target对象提取SQL信息
-            Object target = context.getTarget();
-            if (target != null) {
-                String targetStr = target.toString();
-                if (targetStr.contains("SELECT") || targetStr.contains("INSERT") ||
-                    targetStr.contains("UPDATE") || targetStr.contains("DELETE")) {
-                    output.append("  SQL: ").append(targetStr).append("\n");
-                }
-            }
+            // 显示所有采集到的指标
+            Map<String, Object> allMetrics = context.getAllMetrics();
 
-            // 参数信息
-            Object[] args = context.getArgs();
-            if (args != null && args.length > 0) {
-                output.append("  Parameters: [");
-                for (int i = 0; i < args.length; i++) {
-                    if (i > 0) output.append(", ");
-                    output.append(args[i] != null ? args[i].toString() : "null");
-                }
-                output.append("]\n");
-            }
+            for (Map.Entry<String, Object> entry : allMetrics.entrySet()) {
+                String key = entry.getKey();
+                Object value = entry.getValue();
 
-            // 返回值信息
-            Object returnValue = context.getReturnValue();
-            if (returnValue != null) {
-                if (returnValue instanceof Boolean) {
-                    output.append("  Result: ").append(returnValue).append("\n");
-                } else if (returnValue instanceof Number) {
-                    output.append("  Affected Rows: ").append(returnValue).append("\n");
-                } else {
-                    output.append("  Result: ").append(returnValue.getClass().getSimpleName()).append("\n");
+                // 跳过内部使用的指标
+                if ("traceNode".equals(key)) {
+                    continue;
+                }
+
+                // 格式化显示指标
+                if (value != null) {
+                    output.append("  ").append(formatMetricName(key)).append(": ");
+                    output.append(formatMetricValue(value)).append("\n");
                 }
             }
 
         } catch (Exception e) {
             // 忽略格式化错误
+        }
+    }
+
+    /**
+     * 格式化指标名称（配置驱动）
+     */
+    private String formatMetricName(String metricName) {
+        // 配置驱动：从探针配置中获取指标的显示名称
+        for (ProbeConfig.MetricConfig metric : probeConfig.getMetrics()) {
+            if (metricName.equals(metric.getName())) {
+                // 如果配置中有description，使用description作为显示名称
+                String description = metric.getDescription();
+                if (description != null && !description.isEmpty()) {
+                    return description;
+                }
+            }
+        }
+
+        // 如果配置中没有找到，使用原始名称
+        return metricName;
+    }
+
+    /**
+     * 格式化指标值
+     */
+    private String formatMetricValue(Object value) {
+        if (value instanceof String) {
+            return (String) value;
+        } else if (value instanceof Number) {
+            return value.toString();
+        } else if (value instanceof Boolean) {
+            return value.toString();
+        } else {
+            return value.toString();
+        }
+    }
+
+    /**
+     * 填充节点属性（完全配置驱动）
+     */
+    private void populateNodeAttributes(TraceNode node, ExecutionContext context) {
+        try {
+            // 配置驱动：根据探针配置中的指标定义来提取属性
+            populateNodeAttributesFromConfig(node, context, probeConfig.getName());
+
+            // 通用属性
+            node.setAttribute("executionTime", context.getExecutionTime());
+            node.setAttribute("threadName", context.getThreadName());
+
+        } catch (Exception e) {
+            System.err.println("Error populating node attributes: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 根据配置文件提取节点属性（配置驱动）
+     */
+    private void populateNodeAttributesFromConfig(TraceNode node, ExecutionContext context, String probeName) {
+        try {
+            // 遍历探针配置中的所有指标
+            for (ProbeConfig.MetricConfig metric : probeConfig.getMetrics()) {
+                String metricName = metric.getName();
+                String source = metric.getSource();
+
+                if (source != null && !source.isEmpty()) {
+                    // 使用SourceExpressionParser解析source表达式
+                    SourceExpressionParser parser = new SourceExpressionParser();
+                    Object value = parser.parse(source, context);
+
+                    if (value != null) {
+                        node.setAttribute(metricName, value);
+                    }
+                }
+            }
+
+            // 如果配置中有Formula表达式，也进行计算
+            for (ProbeConfig.MetricConfig metric : probeConfig.getMetrics()) {
+                String formula = metric.getFormula();
+                if (formula != null && !formula.isEmpty()) {
+                    try {
+                        FormulaExpressionParser formulaParser = new FormulaExpressionParser();
+                        Object calculatedValue = formulaParser.parse(formula, context);
+                        if (calculatedValue != null) {
+                            node.setAttribute(metric.getName(), calculatedValue);
+                        }
+                    } catch (Exception e) {
+                        // Formula计算失败不影响其他属性
+                        System.err.println("Formula calculation failed for " + metric.getName() + ": " + e.getMessage());
+                    }
+                }
+            }
+
+        } catch (Exception e) {
+            System.err.println("Error extracting attributes from config for " + probeName + ": " + e.getMessage());
+        }
+    }
+
+
+
+    /**
+     * 从配置中获取节点类型（配置驱动）
+     */
+    private String getNodeTypeFromConfig() {
+        // 配置驱动：从探针配置的output部分获取类型
+        if (probeConfig.getOutput() != null && probeConfig.getOutput().getType() != null) {
+            return probeConfig.getOutput().getType();
+        }
+
+        // 如果没有配置output.type，使用探针名称作为默认值
+        String probeName = probeConfig.getName();
+        if (probeName != null) {
+            // 移除"探针"后缀，转换为大写
+            return probeName;
+        }
+
+        // 最后的默认值
+        return "UNKNOWN";
+    }
+
+    /**
+     * 发布跟踪结果到全局收集器
+     */
+    private void publishTraceResult(ExecutionContext context, TraceNode node) {
+        try {
+            // 创建跟踪结果
+            TraceResultListener.TraceResult result = new TraceResultListener.TraceResult(
+                getNodeTypeFromConfig(),
+                context.getMethodSignature()
+            );
+
+            // 设置基本信息
+            result.setExecutionTime(context.getExecutionTime());
+            result.setThreadName(context.getThreadName());
+            result.setAttributes(context.getAllMetrics());
+
+            if (context.hasException()) {
+                result.setException(context.getException());
+            }
+
+            // 设置链路跟踪上下文
+            String traceId = TraceManager.getInstance().getCurrentTraceId();
+            if (traceId != null) {
+                TraceManager.TraceContext traceContext = TraceManager.getInstance().getTraceContext(traceId);
+                result.setTraceContext(traceContext);
+            }
+
+            // 发布到全局收集器
+            TraceResultCollector.getInstance().publishResult(result);
+
+        } catch (Exception e) {
+            System.err.println("Error publishing trace result: " + e.getMessage());
         }
     }
 

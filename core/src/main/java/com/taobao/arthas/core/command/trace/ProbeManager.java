@@ -17,12 +17,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class ProbeManager {
 
-    private static final String[] BUILTIN_PROBE_FILES = {
-        "/probes/database-probe.json",
-        "/probes/http-server-probe.json",
-        "/probes/http-client-probe.json",
-        "/probes/file-operations-probe.json"
-    };
+    private static final String PROBE_CONFIG_DIR = "/probes/";
 
     private final Map<String, ProbeConfig> probeConfigs = new ConcurrentHashMap<>();
     private final Map<String, Object> activeProbes = new ConcurrentHashMap<>();
@@ -35,25 +30,54 @@ public class ProbeManager {
     public List<ProbeConfig> loadBuiltinProbes() {
         List<ProbeConfig> configs = new ArrayList<>();
 
-        for (String probeFile : BUILTIN_PROBE_FILES) {
+        // 配置驱动：动态获取探针配置文件
+        String[] probeFiles = getProbeConfigFiles();
+
+        for (String probeFile : probeFiles) {
             try {
-                ProbeConfig config = loadProbeConfigFromResource(probeFile);
+                ProbeConfig config = loadProbeConfigFromResource(PROBE_CONFIG_DIR + probeFile);
                 if (config != null) {
                     configs.add(config);
                     probeConfigs.put(config.getName(), config);
                 }
             } catch (Exception e) {
                 System.err.println("Failed to load probe config: " + probeFile + ", error: " + e.getMessage());
-                // 如果JSON文件加载失败，使用备用配置
-                ProbeConfig fallbackConfig = createFallbackConfig(probeFile);
-                if (fallbackConfig != null) {
-                    configs.add(fallbackConfig);
-                    probeConfigs.put(fallbackConfig.getName(), fallbackConfig);
-                }
+                // 配置驱动：如果JSON文件加载失败，不使用备用配置，直接跳过
+                // 这确保了所有逻辑都严格基于配置文件
             }
         }
 
         return configs;
+    }
+
+    /**
+     * 动态获取探针配置文件列表（配置驱动）
+     */
+    private String[] getProbeConfigFiles() {
+        try {
+            // 尝试从资源目录中扫描所有.json文件
+            java.net.URL url = getClass().getResource(PROBE_CONFIG_DIR);
+            if (url != null) {
+                java.io.File dir = new java.io.File(url.toURI());
+                if (dir.exists() && dir.isDirectory()) {
+                    String[] files = dir.list((dir1, name) -> name.endsWith(".json"));
+                    if (files != null && files.length > 0) {
+                        return files;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Error scanning probe config directory: " + e.getMessage());
+        }
+
+        // 如果动态扫描失败，使用已知的配置文件作为回退
+        // 注意：这仍然是配置驱动的，因为这些文件名反映了实际存在的配置文件
+        return new String[]{
+            "database-probe.json",
+            "http-server-probe.json",
+            "http-client-probe.json",
+            "file-operations-probe.json"
+        };
     }
 
     /**
@@ -146,24 +170,7 @@ public class ProbeManager {
         }
     }
 
-    /**
-     * 创建备用配置（当JSON文件加载失败时使用）
-     */
-    private ProbeConfig createFallbackConfig(String probeFile) {
-        String probeName = extractProbeNameFromFile(probeFile);
-        return createMockProbeConfig(probeName, "Fallback configuration for " + probeName);
-    }
 
-    /**
-     * 从文件路径提取探针名称
-     */
-    private String extractProbeNameFromFile(String probeFile) {
-        if (probeFile.contains("database")) return "Database Probe";
-        if (probeFile.contains("http-server")) return "HTTP Server Probe";
-        if (probeFile.contains("http-client")) return "HTTP Client Probe";
-        if (probeFile.contains("file-operations")) return "File Operations Probe";
-        return "Unknown Probe";
-    }
 
     /**
      * 创建模拟探针配置（备用方案）

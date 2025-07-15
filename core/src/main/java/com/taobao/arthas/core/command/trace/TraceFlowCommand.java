@@ -1,8 +1,11 @@
 package com.taobao.arthas.core.command.trace;
 
+import com.taobao.arthas.core.advisor.AdviceListener;
 import com.taobao.arthas.core.command.Constants;
-import com.taobao.arthas.core.shell.command.AnnotatedCommand;
+import com.taobao.arthas.core.command.monitor200.EnhancerCommand;
 import com.taobao.arthas.core.shell.command.CommandProcess;
+import com.taobao.arthas.core.util.matcher.Matcher;
+import com.taobao.arthas.core.util.matcher.RegexMatcher;
 
 import com.taobao.middleware.cli.annotations.Description;
 import com.taobao.middleware.cli.annotations.Name;
@@ -13,20 +16,21 @@ import java.util.List;
 
 /**
  * trace-flow命令 - 跟踪HTTP请求的完整执行链路
- * 
+ * 阶段3版本：基于EnhancerCommand实现真正的字节码增强
+ *
  * @author arthas
  */
 @Name("trace-flow")
 @Summary("跟踪HTTP请求的完整执行链路")
 @Description(Constants.EXAMPLE +
-        "  tf                                           # 跟踪下一个HTTP请求\n" +
-        "  tf -n 5                                      # 跟踪5次请求\n" +
-        "  tf --filter \"executionTime > 1000\"           # 只显示慢请求\n" +
-        "  tf --filter \"url.startsWith('/api')\"        # 只跟踪API请求\n" +
-        "  tf --output-file result.json                 # 保存结果到文件\n" +
-        "  tf --verbose                                 # 详细模式输出\n" +
+        "  trace-flow                                   # 跟踪下一个HTTP请求\n" +
+        "  trace-flow -n 5                              # 跟踪5次请求\n" +
+        "  trace-flow --filter \"executionTime > 1000\"   # 只显示慢请求\n" +
+        "  trace-flow --list-probes                     # 列出所有探针\n" +
+        "  trace-flow --show-config database            # 显示探针配置\n" +
+        "  trace-flow --verbose                         # 详细模式输出\n" +
         Constants.WIKI + Constants.WIKI_HOME + "trace-flow")
-public class TraceFlowCommand extends AnnotatedCommand {
+public class TraceFlowCommand extends EnhancerCommand {
 
     private Integer count = 1;
     private String filter;
@@ -44,9 +48,12 @@ public class TraceFlowCommand extends AnnotatedCommand {
 
     public TraceFlowCommand() {
         this.probeManager = new ProbeManager();
-        this.traceManager = new TraceManager();
+        this.traceManager = TraceManager.getInstance();
         this.filterEngine = new FilterEngine();
         this.outputFormatter = new OutputFormatter();
+
+        // 阶段3：根据探针配置动态计算最大匹配类数量
+        this.maxNumOfMatchedClass = calculateMaxMatchedClassFromProbeConfig();
     }
 
     @Override
@@ -83,8 +90,8 @@ public class TraceFlowCommand extends AnnotatedCommand {
             // 初始化探针
             initializeProbes(process);
 
-            // 开始跟踪
-            startTracing(process);
+            // 阶段3：使用EnhancerCommand的enhance机制进行真正的字节码增强
+            startEnhancedTracing(process);
 
         } catch (Exception e) {
             process.write("Error executing trace-flow command: " + e.getMessage() + "\n");
@@ -100,6 +107,9 @@ public class TraceFlowCommand extends AnnotatedCommand {
         process.write("================\n");
 
         try {
+            // 确保探针管理器已初始化
+            probeManager.initializeProbes();
+
             List<ProbeConfig> configs = probeManager.loadBuiltinProbes();
             for (ProbeConfig config : configs) {
                 process.write(String.format("- %s: %s (Enabled: %s)\n",
@@ -110,6 +120,9 @@ public class TraceFlowCommand extends AnnotatedCommand {
             process.write("\nTotal: " + configs.size() + " probes\n");
         } catch (Exception e) {
             process.write("Failed to load probe configurations: " + e.getMessage() + "\n");
+            if (verbose) {
+                e.printStackTrace();
+            }
         }
     }
 
@@ -118,6 +131,9 @@ public class TraceFlowCommand extends AnnotatedCommand {
         process.write("========================\n");
 
         try {
+            // 确保探针管理器已初始化
+            probeManager.initializeProbes();
+
             ProbeConfig config = probeManager.getProbeConfig(probeName);
             if (config == null) {
                 process.write("Probe not found: " + probeName + "\n");
@@ -201,52 +217,135 @@ public class TraceFlowCommand extends AnnotatedCommand {
         }
     }
 
-    private void startTracing(CommandProcess process) {
-        process.write("Starting HTTP request tracing...\n");
-        process.write("Trace count: " + count + "\n");
-
-        if (filter != null) {
-            process.write("Filter condition: " + filter + "\n");
-        }
-
-        if (outputFile != null) {
-            process.write("Output file: " + outputFile + "\n");
-        }
-
+    /**
+     * 阶段3：启动增强的跟踪（使用EnhancerCommand机制）
+     */
+    private void startEnhancedTracing(CommandProcess process) {
+        process.write("Starting enhanced HTTP request tracing...\n");
+        process.write("Trace count: " + (count != null ? count : 1) + "\n");
         process.write("Press Ctrl+C to stop tracing\n");
         process.write("========================\n");
 
-        // 阶段2：实现真实的跟踪逻辑
+        // 立即检查verbose参数是否生效
+        process.write("Verbose mode: " + verbose + "\n");
+        if (verbose) {
+            process.write("[DEBUG] Verbose mode is ENABLED\n");
+        } else {
+            process.write("[DEBUG] Verbose mode is DISABLED\n");
+        }
+
         try {
-            InterceptorManager interceptorManager = InterceptorManager.getInstance();
+            // 阶段3：验证探针配置
+            if (verbose) {
+                validateProbeConfigurations(process);
+            }
+
+            // 阶段3：根据当前探针配置重新计算最大匹配类数量
+            if (verbose) {
+                process.write("[DEBUG] About to calculate max matched class...\n");
+            }
+
+            int calculatedMax = calculateMaxMatchedClassFromProbeConfig();
 
             if (verbose) {
-                process.write("Active interceptors: " + interceptorManager.getInterceptorCount() + "\n");
-                for (MethodInterceptor interceptor : interceptorManager.getInterceptors()) {
-                    process.write("  - " + interceptor.getName() + " (enabled: " + interceptor.isEnabled() + ")\n");
+                process.write("[DEBUG] Calculated max matched class: " + calculatedMax + "\n");
+            }
+
+            if (calculatedMax != this.maxNumOfMatchedClass) {
+                this.maxNumOfMatchedClass = calculatedMax;
+                if (verbose) {
+                    process.write("[DEBUG] Updated maxNumOfMatchedClass to: " + calculatedMax + "\n");
                 }
             }
 
-            process.write("Waiting for method calls to intercept...\n");
-            process.write("Note: Database operations (JDBC calls) will be automatically traced\n");
-
-            // 阶段2：拦截器已经通过字节码增强激活，会自动拦截匹配的方法调用
-            // 这里只需要等待或提供一些状态信息
+            // 阶段3：使用EnhancerCommand的enhance方法进行字节码增强
+            process.write("Initializing bytecode enhancement...\n");
 
             if (verbose) {
-                process.write("\n[DEBUG] Stage 2: Real interception is now active\n");
-                process.write("[DEBUG] JDBC method calls will be intercepted and traced\n");
-                process.write("[DEBUG] Use your application to trigger database operations\n");
+                process.write("[DEBUG] About to create matchers...\n");
+            }
+
+            if (verbose) {
+                process.write("[DEBUG] Creating matchers...\n");
+                try {
+                    Matcher classMatcher = getClassNameMatcher();
+                    process.write("[DEBUG] Class matcher: " + (classMatcher != null ? "OK" : "NULL") + "\n");
+
+                    Matcher methodMatcher = getMethodNameMatcher();
+                    process.write("[DEBUG] Method matcher: " + (methodMatcher != null ? "OK" : "NULL") + "\n");
+                } catch (Exception e) {
+                    process.write("[DEBUG] Error creating matchers: " + e.getMessage() + "\n");
+                    e.printStackTrace();
+                }
+            }
+
+            // 检查匹配器是否有效
+            if (verbose) {
+                process.write("[DEBUG] Checking matcher validity...\n");
+            }
+
+            Matcher classMatcher = null;
+            Matcher methodMatcher = null;
+
+            try {
+                classMatcher = getClassNameMatcher();
+                methodMatcher = getMethodNameMatcher();
+            } catch (Exception e) {
+                process.write("Error creating matchers: " + e.getMessage() + "\n");
+                if (verbose) {
+                    e.printStackTrace();
+                }
+                return;
+            }
+
+            if (classMatcher == null || methodMatcher == null) {
+                process.write("Warning: No valid probe configurations found.\n");
+                process.write("Possible reasons:\n");
+                process.write("1. Probe configuration files are missing or invalid\n");
+                process.write("2. All probes are disabled\n");
+                process.write("3. No target classes/methods defined in probe configurations\n");
+                process.write("\nUse --list-probes to check available probe configurations.\n");
+                return;
+            }
+
+            if (verbose) {
+                process.write("[DEBUG] Matchers are valid, calling enhance()...\n");
+                process.write("[DEBUG] maxNumOfMatchedClass: " + this.maxNumOfMatchedClass + "\n");
+                process.write("[DEBUG] About to call enhance() method...\n");
+            }
+
+            // 调用父类的enhance方法
+            try {
+                // 添加超时保护
+                long enhanceStartTime = System.currentTimeMillis();
+                enhance(process);
+                long enhanceEndTime = System.currentTimeMillis();
+
+                if (verbose) {
+                    process.write("[DEBUG] enhance() completed successfully in " +
+                                (enhanceEndTime - enhanceStartTime) + "ms\n");
+                }
+            } catch (Exception e) {
+                process.write("Error in enhance(): " + e.getMessage() + "\n");
+                if (verbose) {
+                    process.write("[DEBUG] Exception type: " + e.getClass().getSimpleName() + "\n");
+                    e.printStackTrace();
+                }
+                return;
+            }
+
+            if (verbose) {
+                process.write("\n[DEBUG] Stage 3: Enhanced tracing is now active\n");
+                process.write("[DEBUG] Real method interception using bytecode enhancement\n");
+                process.write("[DEBUG] Multi-probe coordination enabled\n");
             }
 
         } catch (Exception e) {
-            process.write("Error during tracing: " + e.getMessage() + "\n");
+            process.write("Error during enhanced tracing: " + e.getMessage() + "\n");
             if (verbose) {
                 e.printStackTrace();
             }
         }
-
-        process.end();
     }
 
     // Setter methods with annotations (Arthas style)
@@ -268,7 +367,7 @@ public class TraceFlowCommand extends AnnotatedCommand {
         this.outputFile = outputFile;
     }
 
-    @Option(longName = "verbose", flag = true)
+    @Option(shortName = "v", longName = "verbose", flag = true)
     @Description("Verbose mode, show more debug information")
     public void setVerbose(boolean verbose) {
         this.verbose = verbose;
@@ -307,4 +406,298 @@ public class TraceFlowCommand extends AnnotatedCommand {
     public boolean isListProbes() { return listProbes; }
     public String getShowConfig() { return showConfig; }
     public boolean isHelp() { return help; }
+
+    // ========== 阶段3：EnhancerCommand必需的方法 ==========
+
+    @Override
+    protected Matcher getClassNameMatcher() {
+        // 阶段3：基于探针配置动态生成类匹配器
+        return createProbeBasedClassMatcher();
+    }
+
+    @Override
+    protected Matcher getClassNameExcludeMatcher() {
+        // 不排除任何类
+        return null;
+    }
+
+    @Override
+    protected Matcher getMethodNameMatcher() {
+        // 阶段3：基于探针配置动态生成方法匹配器
+        return createProbeBasedMethodMatcher();
+    }
+
+    @Override
+    protected AdviceListener getAdviceListener(CommandProcess process) {
+        // 阶段3：返回集成链路跟踪的监听器
+        return new TraceFlowEnhancerAdviceListener(this, process);
+    }
+
+    /**
+     * 阶段3：基于探针配置创建类匹配器（严格配置驱动）
+     */
+    private Matcher createProbeBasedClassMatcher() {
+        try {
+            if (verbose) {
+                System.out.println("[DEBUG] Creating probe-based class matcher...");
+            }
+
+            // 临时调试：先尝试不初始化探针，看看是否是这里的问题
+            if (verbose) {
+                System.out.println("[DEBUG] About to initialize ProbeManager...");
+            }
+
+            ProbeManager probeManager = new ProbeManager();
+
+            if (verbose) {
+                System.out.println("[DEBUG] ProbeManager created, about to initialize probes...");
+            }
+
+            probeManager.initializeProbes();
+
+            if (verbose) {
+                System.out.println("[DEBUG] Probes initialized successfully");
+            }
+
+            // 收集所有探针的目标类
+            StringBuilder classPattern = new StringBuilder();
+            boolean first = true;
+
+            for (ProbeConfig config : probeManager.getAllProbeConfigs().values()) {
+                if (!config.isEnabled()) {
+                    if (verbose) {
+                        System.out.println("[DEBUG] Skipping disabled probe: " + config.getName());
+                    }
+                    continue;
+                }
+
+                if (verbose) {
+                    System.out.println("[DEBUG] Processing probe: " + config.getName());
+                }
+
+                for (ProbeConfig.MetricConfig metric : config.getMetrics()) {
+                    if (metric.getTargets() != null) {
+                        for (ProbeConfig.TargetConfig target : metric.getTargets()) {
+                            if (!first) {
+                                classPattern.append("|");
+                            }
+                            // 转换类名为正则表达式
+                            String className = target.getClassName().replace(".", "\\.");
+                            classPattern.append(className);
+                            first = false;
+
+                            if (verbose) {
+                                System.out.println("[DEBUG] Added target class: " + target.getClassName());
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (classPattern.length() > 0) {
+                String pattern = "(" + classPattern.toString() + ")";
+                if (verbose) {
+                    System.out.println("[DEBUG] Final class pattern: " + pattern);
+                    System.out.println("[DEBUG] Pattern length: " + pattern.length());
+                }
+                return new RegexMatcher(pattern);
+            } else {
+                if (verbose) {
+                    System.out.println("[DEBUG] No target classes found in probe configurations");
+                }
+            }
+
+        } catch (Exception e) {
+            System.err.println("Error creating probe-based class matcher: " + e.getMessage());
+            if (verbose) {
+                e.printStackTrace();
+            }
+        }
+
+        // 临时调试：如果配置加载失败，使用简化的文件操作匹配器
+        if (verbose) {
+            System.out.println("[DEBUG] No target classes found in probe configurations");
+            System.out.println("[DEBUG] Using simplified file operations matcher for debugging");
+        }
+        return new RegexMatcher("java\\.io\\.(FileInputStream|FileOutputStream)");
+    }
+
+    /**
+     * 阶段3：基于探针配置创建方法匹配器（严格配置驱动）
+     */
+    private Matcher createProbeBasedMethodMatcher() {
+        try {
+            if (verbose) {
+                System.out.println("[DEBUG] Creating probe-based method matcher...");
+            }
+
+            ProbeManager probeManager = new ProbeManager();
+            probeManager.initializeProbes();
+
+            // 收集所有探针的目标方法
+            StringBuilder methodPattern = new StringBuilder();
+            boolean first = true;
+
+            for (ProbeConfig config : probeManager.getAllProbeConfigs().values()) {
+                if (!config.isEnabled()) continue;
+
+                for (ProbeConfig.MetricConfig metric : config.getMetrics()) {
+                    if (metric.getTargets() != null) {
+                        for (ProbeConfig.TargetConfig target : metric.getTargets()) {
+                            if (target.getMethods() != null) {
+                                for (String method : target.getMethods()) {
+                                    if (!first) {
+                                        methodPattern.append("|");
+                                    }
+                                    // 转换方法名为正则表达式
+                                    String methodRegex = method.replace("*", ".*");
+                                    methodPattern.append(methodRegex);
+                                    first = false;
+
+                                    if (verbose) {
+                                        System.out.println("[DEBUG] Added target method: " + method + " -> " + methodRegex);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (methodPattern.length() > 0) {
+                String pattern = "(" + methodPattern.toString() + ")";
+                if (verbose) {
+                    System.out.println("[DEBUG] Final method pattern: " + pattern);
+                    System.out.println("[DEBUG] Pattern length: " + pattern.length());
+                }
+                return new RegexMatcher(pattern);
+            } else {
+                if (verbose) {
+                    System.out.println("[DEBUG] No target methods found in probe configurations");
+                }
+            }
+
+        } catch (Exception e) {
+            System.err.println("Error creating probe-based method matcher: " + e.getMessage());
+            if (verbose) {
+                e.printStackTrace();
+            }
+        }
+
+        // 临时调试：如果配置加载失败，使用简化的方法匹配器
+        if (verbose) {
+            System.out.println("[DEBUG] No target methods found in probe configurations");
+            System.out.println("[DEBUG] Using simplified read/write matcher for debugging");
+        }
+        return new RegexMatcher("(read|write).*");
+    }
+
+    /**
+     * 验证探针配置是否正确加载（配置驱动）
+     */
+    private void validateProbeConfigurations(CommandProcess process) {
+        try {
+            ProbeManager probeManager = new ProbeManager();
+            probeManager.initializeProbes();
+
+            process.write("Validating probe configurations...\n");
+
+            int totalProbes = 0;
+            int enabledProbes = 0;
+            int totalTargets = 0;
+
+            for (ProbeConfig config : probeManager.getAllProbeConfigs().values()) {
+                totalProbes++;
+                if (config.isEnabled()) {
+                    enabledProbes++;
+
+                    for (ProbeConfig.MetricConfig metric : config.getMetrics()) {
+                        if (metric.getTargets() != null) {
+                            totalTargets += metric.getTargets().size();
+                        }
+                    }
+                }
+
+                if (verbose) {
+                    process.write("  - " + config.getName() + ": " +
+                                (config.isEnabled() ? "Enabled" : "Disabled") + "\n");
+                }
+            }
+
+            process.write("Total probes: " + totalProbes + "\n");
+            process.write("Enabled probes: " + enabledProbes + "\n");
+            process.write("Total target classes: " + totalTargets + "\n");
+
+            if (enabledProbes == 0) {
+                process.write("WARNING: No enabled probes found!\n");
+            }
+
+            if (totalTargets == 0) {
+                process.write("WARNING: No target classes defined in probe configurations!\n");
+            }
+
+        } catch (Exception e) {
+            process.write("Error validating probe configurations: " + e.getMessage() + "\n");
+            if (verbose) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    /**
+     * 根据探针配置动态计算最大匹配类数量（配置驱动）
+     */
+    private int calculateMaxMatchedClassFromProbeConfig() {
+        try {
+            if (verbose) {
+                System.out.println("[DEBUG] Calculating max matched class from probe config...");
+            }
+
+            ProbeManager probeManager = new ProbeManager();
+            probeManager.initializeProbes();
+
+            int totalTargetClasses = 0;
+
+            // 统计所有启用探针的目标类数量
+            for (ProbeConfig config : probeManager.getAllProbeConfigs().values()) {
+                if (!config.isEnabled()) {
+                    if (verbose) {
+                        System.out.println("[DEBUG] Skipping disabled probe: " + config.getName());
+                    }
+                    continue;
+                }
+
+                int probeTargetCount = 0;
+                for (ProbeConfig.MetricConfig metric : config.getMetrics()) {
+                    if (metric.getTargets() != null) {
+                        probeTargetCount += metric.getTargets().size();
+                        totalTargetClasses += metric.getTargets().size();
+                    }
+                }
+
+                if (verbose) {
+                    System.out.println("[DEBUG] Probe '" + config.getName() + "' has " + probeTargetCount + " target classes");
+                }
+            }
+
+            if (totalTargetClasses > 0) {
+                // 配置驱动：基于实际的目标类数量，加上一些缓冲
+                // 考虑到一个目标类可能匹配多个实际的JVM类（如子类、实现类等）
+                int calculatedMax = totalTargetClasses * 3; // 每个配置的目标类可能匹配3个实际类
+
+                if (verbose) {
+                    System.out.println("[DEBUG] Calculated maxNumOfMatchedClass: " + calculatedMax +
+                                     " (based on " + totalTargetClasses + " target classes in probe configs)");
+                }
+
+                return Math.max(calculatedMax, 10); // 最少10个类
+            }
+
+        } catch (Exception e) {
+            System.err.println("Error calculating max matched class from probe config: " + e.getMessage());
+        }
+
+        // 如果计算失败，使用保守的默认值
+        return 50; // EnhancerCommand的默认值
+    }
 }

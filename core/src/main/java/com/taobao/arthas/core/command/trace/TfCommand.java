@@ -80,7 +80,7 @@ public class TfCommand extends AnnotatedCommand {
         this.outputFile = outputFile;
     }
 
-    @Option(longName = "verbose", flag = true)
+    @Option(shortName = "v", longName = "verbose", flag = true)
     @Description("Verbose mode, show more debug information")
     public void setVerbose(boolean verbose) {
         this.verbose = verbose;

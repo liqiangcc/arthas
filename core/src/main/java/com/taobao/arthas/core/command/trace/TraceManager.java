@@ -1,25 +1,108 @@
 package com.taobao.arthas.core.command.trace;
 
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * 链路跟踪管理器 - 阶段1基础版本
+ * 链路跟踪管理器 - 阶段3增强版本
+ * 支持多探针协同、Trace ID传递、链路关联
  */
 public class TraceManager {
-    
+
+    private static final TraceManager INSTANCE = new TraceManager();
     private final AtomicLong traceCounter = new AtomicLong(0);
     private final ConcurrentHashMap<String, TraceContext> activeTraces = new ConcurrentHashMap<>();
+    private final ThreadLocal<String> currentTraceId = new ThreadLocal<>();
+    private final ThreadLocal<Stack<TraceNode>> nodeStack = new ThreadLocal<>();
     
+    private TraceManager() {}
+
+    public static TraceManager getInstance() {
+        return INSTANCE;
+    }
+
     /**
-     * 开始新的跟踪
+     * 开始新的跟踪（HTTP请求入口）
      */
     public String startTrace() {
         String traceId = generateTraceId();
         TraceContext context = new TraceContext(traceId);
         activeTraces.put(traceId, context);
+
+        // 设置当前线程的Trace ID
+        currentTraceId.set(traceId);
+
+        // 初始化节点栈
+        nodeStack.set(new Stack<>());
+
         return traceId;
+    }
+
+    /**
+     * 获取当前线程的Trace ID
+     */
+    public String getCurrentTraceId() {
+        return currentTraceId.get();
+    }
+
+    /**
+     * 获取指定的跟踪上下文
+     */
+    public TraceContext getTraceContext(String traceId) {
+        return activeTraces.get(traceId);
+    }
+
+    /**
+     * 开始一个新的跟踪节点
+     */
+    public TraceNode startNode(String nodeType, String methodSignature) {
+        String traceId = getCurrentTraceId();
+        if (traceId == null) {
+            // 如果没有活跃的trace，创建一个新的
+            traceId = startTrace();
+        }
+
+        TraceContext context = activeTraces.get(traceId);
+        if (context == null) {
+            return null;
+        }
+
+        TraceNode node = new TraceNode(nodeType, methodSignature);
+        node.setStartTime(System.currentTimeMillis());
+
+        // 处理父子关系
+        Stack<TraceNode> stack = nodeStack.get();
+        if (stack != null && !stack.isEmpty()) {
+            TraceNode parent = stack.peek();
+            parent.addChild(node);
+            node.setParent(parent);
+        } else {
+            // 根节点
+            context.setRootNode(node);
+        }
+
+        if (stack != null) {
+            stack.push(node);
+        }
+
+        return node;
+    }
+
+    /**
+     * 结束当前跟踪节点
+     */
+    public void endNode(TraceNode node) {
+        if (node == null) {
+            return;
+        }
+
+        node.setEndTime(System.currentTimeMillis());
+
+        Stack<TraceNode> stack = nodeStack.get();
+        if (stack != null && !stack.isEmpty() && stack.peek() == node) {
+            stack.pop();
+        }
     }
 
     /**
@@ -30,6 +113,13 @@ public class TraceManager {
         if (context != null) {
             context.markEnd();
         }
+
+        // 清理线程本地变量
+        if (traceId.equals(getCurrentTraceId())) {
+            currentTraceId.remove();
+            nodeStack.remove();
+        }
+
         return context;
     }
 
@@ -57,17 +147,20 @@ public class TraceManager {
     }
 
     /**
-     * 跟踪上下文
+     * 跟踪上下文 - 阶段3增强版本
      */
     public static class TraceContext {
         private final String traceId;
         private final long startTime;
         private long endTime;
         private boolean completed;
+        private TraceNode rootNode;
+        private Map<String, Object> attributes;
 
         public TraceContext(String traceId) {
             this.traceId = traceId;
             this.startTime = System.currentTimeMillis();
+            this.attributes = new HashMap<>();
         }
 
         public void markEnd() {
@@ -82,17 +175,53 @@ public class TraceManager {
             return System.currentTimeMillis() - startTime;
         }
 
-        // Getters
+        /**
+         * 获取树状输出
+         */
+        public String getTreeOutput() {
+            if (rootNode == null) {
+                return "No trace data available";
+            }
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("Trace ID: ").append(traceId).append("\n");
+            sb.append("Total Duration: ").append(getDuration()).append("ms\n");
+            sb.append("Nodes: ").append(getTotalNodes()).append("\n");
+            sb.append("Call Tree:\n");
+            sb.append(rootNode.toTreeString());
+
+            return sb.toString();
+        }
+
+        /**
+         * 获取总节点数
+         */
+        public int getTotalNodes() {
+            if (rootNode == null) {
+                return 0;
+            }
+            return 1 + rootNode.getTotalDescendants();
+        }
+
+        // Getters and Setters
         public String getTraceId() { return traceId; }
         public long getStartTime() { return startTime; }
         public long getEndTime() { return endTime; }
         public boolean isCompleted() { return completed; }
+
+        public TraceNode getRootNode() { return rootNode; }
+        public void setRootNode(TraceNode rootNode) { this.rootNode = rootNode; }
+
+        public Map<String, Object> getAttributes() { return attributes; }
+        public void setAttribute(String key, Object value) { attributes.put(key, value); }
+        public Object getAttribute(String key) { return attributes.get(key); }
 
         @Override
         public String toString() {
             return "TraceContext{" +
                     "traceId='" + traceId + '\'' +
                     ", duration=" + getDuration() + "ms" +
+                    ", nodes=" + getTotalNodes() +
                     ", completed=" + completed +
                     '}';
         }

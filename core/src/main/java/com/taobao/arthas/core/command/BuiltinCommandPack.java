@@ -110,6 +110,7 @@ public class BuiltinCommandPack implements CommandResolver {
         commandClassList.add(TimeCommand.class);
         commandClassList.add(TraceFlowCommand.class);
         commandClassList.add(TfCommand.class);
+        commandClassList.add(com.taobao.arthas.core.command.trace.SimpleTraceCommand.class);
         try {
             if (ClassLoader.getSystemClassLoader().getResource("jdk/jfr/Recording.class") != null) {
                 commandClassList.add(JFRCommand.class);

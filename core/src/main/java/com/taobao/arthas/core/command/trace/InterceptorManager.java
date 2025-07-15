@@ -1,7 +1,7 @@
 package com.taobao.arthas.core.command.trace;
 
-import com.taobao.arthas.core.advisor.AdviceListener;
 import com.taobao.arthas.core.advisor.Enhancer;
+import com.taobao.arthas.core.util.affect.EnhancerAffect;
 import com.taobao.arthas.core.util.matcher.Matcher;
 import com.taobao.arthas.core.util.matcher.RegexMatcher;
 
@@ -20,7 +20,7 @@ public class InterceptorManager {
     private static final InterceptorManager INSTANCE = new InterceptorManager();
     
     private final List<MethodInterceptor> interceptors = new CopyOnWriteArrayList<>();
-    private final ConcurrentHashMap<String, Object> enhancerAffects = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, EnhancerAffect> enhancerAffects = new ConcurrentHashMap<>();
     private boolean initialized = false;
     
     private InterceptorManager() {}
@@ -30,15 +30,25 @@ public class InterceptorManager {
     }
     
     /**
-     * 注册方法拦截器
+     * 注册方法拦截器（防止重复注册）
      */
     public void registerInterceptor(MethodInterceptor interceptor) {
         if (interceptor == null) {
             throw new IllegalArgumentException("Interceptor cannot be null");
         }
-        
+
+        // 检查是否已经注册过相同名称的拦截器
+        String interceptorName = interceptor.getName();
+        for (MethodInterceptor existing : interceptors) {
+            if (interceptorName.equals(existing.getName())) {
+                System.out.println("Interceptor already registered: " + interceptorName);
+                return; // 已存在，不重复注册
+            }
+        }
+
         interceptors.add(interceptor);
-        
+        System.out.println("Registered interceptor: " + interceptorName);
+
         // 如果已经初始化，立即启用拦截器
         if (initialized) {
             enableInterceptor(interceptor);
@@ -134,17 +144,15 @@ public class InterceptorManager {
             
             Matcher<String> methodNameMatcher = new RegexMatcher(methodPattern.toString());
             
-            // 创建Advice监听器
-            TraceFlowAdviceListener adviceListener = new TraceFlowAdviceListener(interceptor);
-            
-            // 创建增强器 - 简化版本，先不使用复杂的增强
-            // TODO: 在后续版本中实现完整的字节码增强
+            // 阶段3：跳过InterceptorManager的字节码增强
+            // 因为我们现在使用EnhancerCommand的机制，避免重复增强
+            System.out.println("Skipping InterceptorManager enhancement - using EnhancerCommand instead");
 
-            // 保存增强结果
+            // 保存增强结果（标记为已处理）
             String key = target.getClassName() + ":" + methodPattern.toString();
-            enhancerAffects.put(key, "enhanced");
+            enhancerAffects.put(key, null); // null表示由EnhancerCommand处理
 
-            System.out.println("Enhanced target: " + target.getClassName() +
+            System.out.println("✓ Registered target for EnhancerCommand: " + target.getClassName() +
                              ", methods: " + methodPattern.toString());
             
         } catch (Exception e) {
@@ -183,12 +191,13 @@ public class InterceptorManager {
     }
     
     /**
-     * 重置管理器状态（主要用于测试）
+     * 重置管理器状态（主要用于测试和避免重复初始化）
      */
     public void reset() {
         interceptors.clear();
         enhancerAffects.clear();
         initialized = false;
+        System.out.println("InterceptorManager reset completed");
     }
     
     /**
