@@ -2,40 +2,76 @@
   "name": "HTTP Client探针",
   "description": "监控出站HTTP请求",
   "enabled": true,
-  "targets": [
-    {
-      "class": "org.apache.http.impl.client.CloseableHttpClient",
-      "methods": ["execute"]
-    },
-    {
-      "class": "okhttp3.Call",
-      "methods": ["execute"]
-    },
-    {
-      "class": "org.springframework.web.client.RestTemplate",
-      "methods": ["exchange", "getForObject", "getForEntity", "postForObject", "postForEntity"]
-    },
-    {
-      "class": "java.net.http.HttpClient",
-      "methods": ["send"]
-    }
-  ],
   "metrics": [
     {
       "name": "method",
       "description": "HTTP请求方法",
+      "targets": [
+        {
+          "className": "org.apache.http.impl.client.CloseableHttpClient",
+          "methods": ["execute"]
+        },
+        {
+          "className": "okhttp3.Call",
+          "methods": ["execute"]
+        },
+        {
+          "className": "org.springframework.web.client.RestTemplate",
+          "methods": ["exchange", "getForObject", "getForEntity", "postForObject", "postForEntity"]
+        },
+        {
+          "className": "java.net.http.HttpClient",
+          "methods": ["send"]
+        }
+      ],
       "source": "args[0].getMethod != null ? args[0].getMethod() : (args[0].request != null ? args[0].request().method() : 'HTTP')",
       "type": "string"
     },
     {
       "name": "url",
       "description": "请求URL",
+      "targets": [
+        {
+          "className": "org.apache.http.impl.client.CloseableHttpClient",
+          "methods": ["execute"]
+        },
+        {
+          "className": "okhttp3.Call",
+          "methods": ["execute"]
+        },
+        {
+          "className": "org.springframework.web.client.RestTemplate",
+          "methods": ["exchange", "getForObject", "getForEntity", "postForObject", "postForEntity"]
+        },
+        {
+          "className": "java.net.http.HttpClient",
+          "methods": ["send"]
+        }
+      ],
       "source": "args[0].getURI != null ? args[0].getURI().toString() : (args[0].request != null ? args[0].request().url().toString() : 'Unknown')",
       "type": "string"
     },
     {
       "name": "host",
       "description": "目标主机",
+      "targets": [
+        {
+          "className": "org.apache.http.impl.client.CloseableHttpClient",
+          "methods": ["execute"]
+        },
+        {
+          "className": "okhttp3.Call",
+          "methods": ["execute"]
+        },
+        {
+          "className": "org.springframework.web.client.RestTemplate",
+          "methods": ["exchange", "getForObject", "getForEntity", "postForObject", "postForEntity"]
+        },
+        {
+          "className": "java.net.http.HttpClient",
+          "methods": ["send"]
+        }
+      ],
       "source": "args[0].getURI != null ? args[0].getURI().getHost() : (args[0].request != null ? args[0].request().url().host() : 'Unknown')",
       "type": "string"
     },

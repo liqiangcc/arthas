@@ -1,14 +1,12 @@
 package com.taobao.arthas.core.command.trace;
 
 import com.alibaba.fastjson2.JSON;
+import com.taobao.arthas.core.advisor.ArthasMethod;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -22,6 +20,7 @@ public class ProbeManager {
     private final Map<String, ProbeConfig> probeConfigs = new ConcurrentHashMap<>();
     private final Map<String, Object> activeProbes = new ConcurrentHashMap<>();
     private boolean initialized = false;
+    private HashMap<String, ProbeConfig> methodSignature2ProbeConfig = new HashMap<>();
 
     /**
      * 加载内置探针配置
@@ -41,6 +40,7 @@ public class ProbeManager {
                     probeConfigs.put(config.getName(), config);
                 }
             } catch (Exception e) {
+                e.printStackTrace(System.err);
                 System.err.println("Failed to load probe config: " + probeFile + ", error: " + e.getMessage());
                 // 配置驱动：如果JSON文件加载失败，不使用备用配置，直接跳过
                 // 这确保了所有逻辑都严格基于配置文件
@@ -160,6 +160,9 @@ public class ProbeManager {
             // 解析JSON
             ProbeConfig config = JSON.parseObject(content, ProbeConfig.class);
 
+            // 处理旧格式配置（将targetId转换为targets）
+            processLegacyFormat(config);
+
             // 验证配置
             validateProbeConfig(config);
 
@@ -170,6 +173,45 @@ public class ProbeManager {
             throw new RuntimeException("Failed to read probe config file: " + resourcePath, e);
         } catch (Exception e) {
             throw new RuntimeException("Failed to parse probe config file: " + resourcePath, e);
+        }
+    }
+
+    /**
+     * 处理旧格式配置（将targetId转换为targets）
+     */
+    private void processLegacyFormat(ProbeConfig config) {
+        if (config == null || config.getMetrics() == null) {
+            return;
+        }
+
+        // 如果有独立的targets数组，处理targetId引用
+        if (config.getTargets() != null && !config.getTargets().isEmpty()) {
+            // 创建id到target的映射
+            Map<String, ProbeConfig.TargetConfig> targetMap = new HashMap<>();
+            for (ProbeConfig.TargetConfig target : config.getTargets()) {
+                if (target.getId() != null) {
+                    targetMap.put(target.getId(), target);
+                }
+            }
+
+            // 为每个使用targetId的metric设置对应的targets
+            for (ProbeConfig.MetricConfig metric : config.getMetrics()) {
+                if (metric.getTargetId() != null && metric.getTargets() == null) {
+                    ProbeConfig.TargetConfig target = targetMap.get(metric.getTargetId());
+                    if (target != null) {
+                        // 创建新的TargetConfig，不包含id字段
+                        ProbeConfig.TargetConfig newTarget = new ProbeConfig.TargetConfig();
+                        newTarget.setClassName(target.getClassName());
+                        newTarget.setMethods(target.getMethods());
+                        newTarget.setClassAnnotation(target.getClassAnnotation());
+                        newTarget.setMethodAnnotation(target.getMethodAnnotation());
+
+                        List<ProbeConfig.TargetConfig> targets = new ArrayList<>();
+                        targets.add(newTarget);
+                        metric.setTargets(targets);
+                    }
+                }
+            }
         }
     }
 
@@ -279,7 +321,7 @@ public class ProbeManager {
      */
     private void initializeProbe(ProbeConfig config) {
         try {
-            activeProbes.put(config.getName(), null);
+            activeProbes.put(config.getName(), config);
             System.out.println("Initialized probe: " + config.getName());
         } catch (Exception e) {
             System.err.println("Failed to initialize probe: " + config.getName() + ", error: " + e.getMessage());
@@ -307,6 +349,27 @@ public class ProbeManager {
         probeConfigs.clear();
         activeProbes.clear();
         initialized = false;
+    }
+
+    public ProbeConfig getProbeConfig(Class<?> clazz, ArthasMethod method) {
+        String clazzName = clazz.getName();
+        String methodName = method.getName();
+        String methodSignature = clazzName + "." + methodName;
+        if (methodSignature2ProbeConfig.isEmpty()) {
+            for (ProbeConfig config : probeConfigs.values()) {
+                List<ProbeConfig.TargetConfig> targets = config.getTargets();
+                if (Objects.nonNull( targets)) {
+                    for (ProbeConfig.TargetConfig target : targets) {
+                        if (target.getClassName().equals(clazzName)) {
+                            for (String targetMethod : target.getMethods()) {
+                                this.methodSignature2ProbeConfig.put( target.getClassName() + "." + targetMethod, config);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return this.methodSignature2ProbeConfig.get(methodSignature);
     }
 
     /**

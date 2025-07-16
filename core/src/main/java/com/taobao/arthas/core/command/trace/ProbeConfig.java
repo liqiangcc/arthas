@@ -1,6 +1,10 @@
 package com.taobao.arthas.core.command.trace;
 
+import com.taobao.arthas.core.view.Ansi;
+
+import java.util.HashMap;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * 探针配置数据结构
@@ -10,9 +14,11 @@ public class ProbeConfig {
     private String name;
     private String description;
     private boolean enabled = true;
+    private List<TargetConfig> targets;
     private List<MetricConfig> metrics;
     private OutputConfig output;
     private List<FilterConfig> filters;
+    private final HashMap<String, List<MetricConfig>> metricConfigMap = new HashMap<>();
 
     // 构造函数
     public ProbeConfig() {}
@@ -48,12 +54,36 @@ public class ProbeConfig {
         this.enabled = enabled;
     }
 
+    public HashMap<String, List<MetricConfig>> getMetricConfigMap() {
+        return metricConfigMap;
+    }
+
+
+    public List<TargetConfig> getTargets() {
+        return targets;
+    }
+
+    public void setTargets(List<TargetConfig> targets) {
+        this.targets = targets;
+    }
+
     public List<MetricConfig> getMetrics() {
         return metrics;
     }
 
     public void setMetrics(List<MetricConfig> metrics) {
         this.metrics = metrics;
+    }
+
+    private void initMetricConfigMap(List<MetricConfig> metrics) {
+        metricConfigMap.clear();
+        for (MetricConfig metric : metrics) {
+            if (Objects.nonNull(metric)) {
+                List<MetricConfig> metricList = metricConfigMap.computeIfAbsent(metric.getTargetId(), k -> new java.util.ArrayList<>());
+                metricList.add(metric);
+            }
+        }
+        System.out.println("initMetricConfigMap: " + metrics);
     }
 
     public OutputConfig getOutput() {
@@ -82,12 +112,22 @@ public class ProbeConfig {
                 '}';
     }
 
+    public List<MetricConfig> getMetrics(String methodSignature) {
+        if (metricConfigMap.isEmpty()) {
+            if (metrics != null) {
+                initMetricConfigMap(metrics);
+            }
+        }
+        return metricConfigMap.get(methodSignature);
+    }
+
     /**
      * 指标配置
      */
     public static class MetricConfig {
         private String name;
         private String description;
+        private String targetId; // 支持旧格式的targetId字段
         private List<TargetConfig> targets;
         private String source;
         private String formula;
@@ -119,6 +159,14 @@ public class ProbeConfig {
 
         public void setDescription(String description) {
             this.description = description;
+        }
+
+        public String getTargetId() {
+            return targetId;
+        }
+
+        public void setTargetId(String targetId) {
+            this.targetId = targetId;
         }
 
         public List<TargetConfig> getTargets() {
@@ -183,8 +231,10 @@ public class ProbeConfig {
      * 目标配置
      */
     public static class TargetConfig {
+        private String id; // 支持旧格式的id字段
         private String className;
         private List<String> methods;
+        private String description; // 支持旧格式的description字段
         private String classAnnotation;
         private String methodAnnotation;
 
@@ -197,6 +247,14 @@ public class ProbeConfig {
         }
 
         // Getters and Setters
+        public String getId() {
+            return id;
+        }
+
+        public void setId(String id) {
+            this.id = id;
+        }
+
         public String getClassName() {
             return className;
         }
@@ -211,6 +269,14 @@ public class ProbeConfig {
 
         public void setMethods(List<String> methods) {
             this.methods = methods;
+        }
+
+        public String getDescription() {
+            return description;
+        }
+
+        public void setDescription(String description) {
+            this.description = description;
         }
 
         public String getClassAnnotation() {
@@ -244,13 +310,21 @@ public class ProbeConfig {
     public static class OutputConfig {
         private String type;
         private String template;
-
+        private String colorName = Ansi.Color.DEFAULT.name();
         // 构造函数
         public OutputConfig() {}
 
         public OutputConfig(String type, String template) {
             this.type = type;
             this.template = template;
+        }
+
+        public String getColorName() {
+            return colorName;
+        }
+
+        public void setColorName(String colorName) {
+            this.colorName = colorName;
         }
 
         // Getters and Setters

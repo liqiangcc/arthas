@@ -8,19 +8,19 @@
       "description": "文件路径",
       "targets": [
         {
-          "class": "java.io.FileInputStream",
+          "className": "java.io.FileInputStream",
           "methods": ["<init>"]
         },
         {
-          "class": "java.io.FileOutputStream",
+          "className": "java.io.FileOutputStream",
           "methods": ["<init>"]
         },
         {
-          "class": "java.io.RandomAccessFile",
+          "className": "java.io.RandomAccessFile",
           "methods": ["<init>"]
         },
         {
-          "class": "java.nio.file.Files",
+          "className": "java.nio.file.Files",
           "methods": ["readAllBytes", "readAllLines", "write", "writeString"]
         }
       ],
@@ -44,15 +44,15 @@
       "description": "操作开始时间",
       "targets": [
         {
-          "class": "java.io.FileInputStream",
+          "className": "java.io.FileInputStream",
           "methods": ["read"]
         },
         {
-          "class": "java.io.FileOutputStream",
+          "className": "java.io.FileOutputStream",
           "methods": ["write"]
         },
         {
-          "class": "java.nio.file.Files",
+          "className": "java.nio.file.Files",
           "methods": ["readAllBytes", "readAllLines", "write", "writeString"]
         }
       ],
@@ -65,15 +65,15 @@
       "description": "操作结束时间",
       "targets": [
         {
-          "class": "java.io.FileInputStream",
+          "className": "java.io.FileInputStream",
           "methods": ["read"]
         },
         {
-          "class": "java.io.FileOutputStream",
+          "className": "java.io.FileOutputStream",
           "methods": ["write"]
         },
         {
-          "class": "java.nio.file.Files",
+          "className": "java.nio.file.Files",
           "methods": ["readAllBytes", "readAllLines", "write", "writeString"]
         }
       ],
@@ -93,15 +93,15 @@
       "description": "方法名称",
       "targets": [
         {
-          "class": "java.io.FileInputStream",
+          "className": "java.io.FileInputStream",
           "methods": ["read"]
         },
         {
-          "class": "java.io.FileOutputStream",
+          "className": "java.io.FileOutputStream",
           "methods": ["write"]
         },
         {
-          "class": "java.nio.file.Files",
+          "className": "java.nio.file.Files",
           "methods": ["readAllBytes", "readAllLines", "write", "writeString"]
         }
       ],
@@ -119,15 +119,15 @@
       "description": "数据大小",
       "targets": [
         {
-          "class": "java.io.FileInputStream",
+          "className": "java.io.FileInputStream",
           "methods": ["read"]
         },
         {
-          "class": "java.io.FileOutputStream",
+          "className": "java.io.FileOutputStream",
           "methods": ["write"]
         },
         {
-          "class": "java.nio.file.Files",
+          "className": "java.nio.file.Files",
           "methods": ["readAllBytes", "readAllLines", "write", "writeString"]
         }
       ],
@@ -159,15 +159,15 @@
       "description": "是否发生异常",
       "targets": [
         {
-          "class": "java.io.FileInputStream",
+          "className": "java.io.FileInputStream",
           "methods": ["read"]
         },
         {
-          "class": "java.io.FileOutputStream",
+          "className": "java.io.FileOutputStream",
           "methods": ["write"]
         },
         {
-          "class": "java.nio.file.Files",
+          "className": "java.nio.file.Files",
           "methods": ["readAllBytes", "readAllLines", "write", "writeString"]
         }
       ],
@@ -179,15 +179,15 @@
       "description": "异常信息",
       "targets": [
         {
-          "class": "java.io.FileInputStream",
+          "className": "java.io.FileInputStream",
           "methods": ["read"]
         },
         {
-          "class": "java.io.FileOutputStream",
+          "className": "java.io.FileOutputStream",
           "methods": ["write"]
         },
         {
-          "class": "java.nio.file.Files",
+          "className": "java.nio.file.Files",
           "methods": ["readAllBytes", "readAllLines", "write", "writeString"]
         }
       ],

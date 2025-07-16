@@ -1,11 +1,15 @@
 package com.taobao.arthas.core.command.trace;
 
+import com.alibaba.fastjson2.JSONObject;
 import com.taobao.arthas.core.advisor.AdviceListenerAdapter;
 import com.taobao.arthas.core.advisor.ArthasMethod;
 import com.taobao.arthas.core.shell.command.CommandProcess;
+import com.taobao.arthas.core.view.Ansi;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.List;
+import java.util.Map;
 
 /**
  * TraceFlow命令的EnhancerAdvice监听器
@@ -16,20 +20,25 @@ public class TraceFlowEnhancerAdviceListener extends AdviceListenerAdapter {
     private final TraceFlowCommand command;
     private final CommandProcess process;
     private final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
-    private final TraceManager traceManager = TraceManager.getInstance();
+    private final TraceManager traceManager;
+    private final ProbeManager probeManager;
 
-    public TraceFlowEnhancerAdviceListener(TraceFlowCommand command, CommandProcess process) {
+    public TraceFlowEnhancerAdviceListener(TraceFlowCommand command, CommandProcess process, TraceManager traceManager,ProbeManager probeManager) {
         this.command = command;
         this.process = process;
+        this.traceManager = traceManager;
+        this.probeManager = probeManager;
     }
     
     @Override
     public void before(ClassLoader loader, Class<?> clazz, ArthasMethod method, Object target, Object[] args) throws Throwable {
         System.out.println("[DEBUG] before called for: " + clazz.getName() + "." + method.getName());
         // 阶段3：启动链路跟踪节点
-        String nodeType = determineNodeType(clazz.getName());
         String methodSignature = clazz.getName() + "." + method.getName();
-        traceManager.startNode(nodeType, methodSignature);
+        ProbeConfig probeConfig = probeManager.getProbeConfig(clazz, method);
+        TraceNode node = traceManager.startNode(probeConfig.getName(), methodSignature);
+
+        node.setProbeConfig(probeConfig);
     }
     
     @Override
@@ -73,63 +82,7 @@ public class TraceFlowEnhancerAdviceListener extends AdviceListenerAdapter {
         }
     }
 
-    
-    /**
-     * 阶段3：确定节点类型（完全配置驱动）
-     */
-    private String determineNodeType(String className) {
-        try {
-            // 配置驱动：从探针配置中查找匹配的类
-            ProbeManager probeManager = new ProbeManager();
-            probeManager.initializeProbes();
 
-            for (ProbeConfig config : probeManager.getAllProbeConfigs().values()) {
-                if (!config.isEnabled()) continue;
-
-                // 检查这个类是否在当前探针的目标类中
-                for (ProbeConfig.MetricConfig metric : config.getMetrics()) {
-                    if (metric.getTargets() != null) {
-                        for (ProbeConfig.TargetConfig target : metric.getTargets()) {
-                            if (className.equals(target.getClassName())) {
-                                // 找到匹配的探针，返回探针的输出类型
-                                return getNodeTypeFromProbeConfig(config);
-                            }
-                        }
-                    }
-                }
-            }
-
-        } catch (Exception e) {
-            System.err.println("Error determining node type from config: " + e.getMessage());
-        }
-
-        // 如果配置中没有找到，返回通用类型
-        return "METHOD_CALL";
-    }
-
-    /**
-     * 从探针配置中获取节点类型（配置驱动）
-     */
-    private String getNodeTypeFromProbeConfig(ProbeConfig config) {
-        // 优先使用配置中的output.type
-        if (config.getOutput() != null && config.getOutput().getType() != null) {
-            return config.getOutput().getType();
-        }
-
-        // 如果没有配置output.type，根据探针名称推断
-        String probeName = config.getName();
-        if (probeName != null) {
-            // 移除"探针"或"Probe"后缀，转换为大写
-            return probeName.replace("探针", "")
-                           .replace("Probe", "")
-                           .replace(" ", "_")
-                           .toUpperCase();
-        }
-
-        // 最后的默认值
-        return "UNKNOWN";
-    }
-    
     /**
      * 输出树状trace结果
      */
@@ -147,19 +100,40 @@ public class TraceFlowEnhancerAdviceListener extends AdviceListenerAdapter {
             }
 
             StringBuilder output = new StringBuilder();
-            output.append("\n").append(repeat("=", 80)).append("\n");
-            output.append("Trace ID: ").append(traceId).append("\n");
-            output.append("Thread: ").append(Thread.currentThread().getName()).append("\n");
-            output.append("Total Nodes: ").append(countTotalNodes(context.getRootNodes())).append("\n");
-            output.append(repeat("-", 80)).append("\n");
+
+            // 头部分隔线（蓝色）
+            Ansi headerLine = Ansi.ansi().fg(Ansi.Color.BLUE).a(repeat("=", 80)).reset();
+            output.append("\n").append(headerLine.toString()).append("\n");
+
+            // Trace ID（青色）
+            Ansi traceIdAnsi = Ansi.ansi().fg(Ansi.Color.CYAN).a("Trace ID: ").reset()
+                    .fg(Ansi.Color.YELLOW).a(traceId).reset();
+            output.append(traceIdAnsi.toString()).append("\n");
+
+            // Thread（绿色）
+            Ansi threadAnsi = Ansi.ansi().fg(Ansi.Color.CYAN).a("Thread: ").reset()
+                    .fg(Ansi.Color.GREEN).a(Thread.currentThread().getName()).reset();
+            output.append(threadAnsi.toString()).append("\n");
+
+            // Total Nodes（洋红色）
+            Ansi nodesAnsi = Ansi.ansi().fg(Ansi.Color.CYAN).a("Total Nodes: ").reset()
+                    .fg(Ansi.Color.MAGENTA).a(countTotalNodes(context.getRootNodes())).reset();
+            output.append(nodesAnsi.toString()).append("\n");
+
+            // 分隔线（蓝色）
+            Ansi separatorLine = Ansi.ansi().fg(Ansi.Color.BLUE).a(repeat("-", 80)).reset();
+            output.append(separatorLine.toString()).append("\n");
 
             // 构建树状结构输出
             buildTreeOutput(context.getRootNodes(), output, "", true);
 
-            output.append(repeat("=", 80)).append("\n");
+            // 尾部分隔线（蓝色）
+            Ansi footerLine = Ansi.ansi().fg(Ansi.Color.BLUE).a(repeat("=", 80)).reset();
+            output.append(footerLine.toString()).append("\n");
             process.write(output.toString());
 
         } catch (Exception e) {
+            e.printStackTrace(System.err);
             process.write("Error outputting tree trace: " + e.getMessage() + "\n");
         }
     }
@@ -179,37 +153,67 @@ public class TraceFlowEnhancerAdviceListener extends AdviceListenerAdapter {
             // 输出当前节点
             if (!isRoot) {
                 output.append(prefix);
-                output.append(isLast ? "+-- " : "|-- ");
+                output.append(isLast ? "`-- " : "+-- ");
             }
 
-            // 时间戳
-            output.append("[").append(dateFormat.format(new Date(node.getStartTime()))).append("] ");
+            // 节点类型（带颜色）
+            String nodeType = node.getNodeType();
+            ProbeConfig probeConfig = node.getProbeConfig();
+            ProbeConfig.OutputConfig outputConfig = probeConfig.getOutput();
+            String colorName = outputConfig.getColorName();
+            Ansi.Color color = Ansi.Color.valueOf(colorName);
+            Ansi nodeTypeAnsi = Ansi.ansi().fg(color).a("[").a(nodeType).a("]").reset();
+            output.append(nodeTypeAnsi.toString()).append(" ");
 
-            // 节点类型
-            output.append("[").append(node.getNodeType()).append("] ");
+            // 方法名（带颜色）
+            Ansi methodAnsi = Ansi.ansi().fg(color).a(node.getMethodSignature()).reset();
+            output.append(methodAnsi.toString());
 
-            // 方法签名（简化显示）
-            String methodName = simplifyMethodName(node.getMethodSignature());
-            output.append(methodName);
+            // 执行时间（根据时间长短显示不同颜色）
+            long executionTime = node.getExecutionTime();
+            Ansi timeAnsi = Ansi.ansi().fg(getTimeColor(executionTime))
+                    .a(" (").a(executionTime).a("ms)").reset();
+            output.append(timeAnsi.toString());
+            output.append("\n");
 
-            // 执行时间
-            if (node.getExecutionTime() > 0) {
-                output.append(" (").append(node.getExecutionTime()).append("ms)");
-            }
+            // 输出属性信息（metrics）
+            Map<String, Object> attributes = node.getAttributes();
+            if (attributes != null && !attributes.isEmpty()) {
+                String attrPrefix = isRoot ? "" : prefix + (isLast ? "    " : "|   ");
 
-            // 参数信息（简化显示）
-            if (node.getArgs() != null && node.getArgs().length > 0) {
-                String argsStr = formatArgs(node.getArgs());
-                if (!argsStr.isEmpty()) {
-                    output.append(" ").append(argsStr);
+                for (Map.Entry<String, Object> entry : attributes.entrySet()) {
+                    output.append(attrPrefix);
+                    output.append("  +- ");
+
+                    // 属性名（黄色）
+                    Ansi attrNameAnsi = Ansi.ansi().fg(Ansi.Color.YELLOW).a(entry.getKey()).reset();
+                    output.append(attrNameAnsi.toString()).append(": ");
+
+                    // 属性值（绿色）
+                    Ansi attrValueAnsi = Ansi.ansi().fg(Ansi.Color.GREEN).a(entry.getValue()).reset();
+                    output.append(attrValueAnsi.toString());
+                    output.append("\n");
                 }
             }
 
-            output.append("\n");
-
             // 递归输出子节点
-            String childPrefix = isRoot ? "" : (prefix + (isLast ? "    " : "|   "));
+            String childPrefix = isRoot ? "" : prefix + (isLast ? "    " : "|   ");
             buildTreeOutput(node.getChildren(), output, childPrefix, false);
+        }
+    }
+
+    /**
+     * 根据执行时间获取颜色
+     */
+    private Ansi.Color getTimeColor(long executionTime) {
+        if (executionTime >= 1000) {
+            return Ansi.Color.RED;      // 超过1秒，红色警告
+        } else if (executionTime >= 500) {
+            return Ansi.Color.YELLOW;   // 超过500ms，黄色提醒
+        } else if (executionTime >= 100) {
+            return Ansi.Color.CYAN;     // 超过100ms，青色
+        } else {
+            return Ansi.Color.GREEN;    // 小于100ms，绿色正常
         }
     }
 
@@ -231,7 +235,6 @@ public class TraceFlowEnhancerAdviceListener extends AdviceListenerAdapter {
      */
     private void populateAttributesFromProbeConfig(TraceNode node, String className, Object target, Object[] args, Object returnObject) {
         try {
-            ProbeManager probeManager = new ProbeManager();
             probeManager.initializeProbes();
 
             // 找到匹配的探针配置
@@ -270,50 +273,34 @@ public class TraceFlowEnhancerAdviceListener extends AdviceListenerAdapter {
     private void extractAttributesFromMetrics(TraceNode node, ProbeConfig config, Object target, Object[] args, Object returnObject) {
         try {
             // 遍历探针配置中的所有指标
-            for (ProbeConfig.MetricConfig metric : config.getMetrics()) {
+            List<ProbeConfig.MetricConfig> metrics = config.getMetrics(node.getMethodSignature());
+            if (metrics == null || metrics.isEmpty()) {
+                System.out.println("No metrics found for method signature: " + node.getMethodSignature());
+                System.out.println("config: " + JSONObject.toJSONString(config));
+                return;
+            }
+            for (ProbeConfig.MetricConfig metric : metrics) {
+                System.out.println("metric: " + metric + " node.getMethodSignature(): " + node.getMethodSignature());
                 String metricName = metric.getName();
                 String source = metric.getSource();
-
                 if (source != null && !source.isEmpty()) {
                     // 使用SourceExpressionParser解析source表达式
-                    Object value = parseSourceExpression(source, target, args, returnObject);
-                    if (value != null) {
-                        node.setAttribute(metricName, value);
+                    SourceExpressionParser sourceExpressionParser = new SourceExpressionParser();
+                    ExecutionContext context = new ExecutionContext(target, args, null);
+                    context.setReturnValue(returnObject);
+                    context.setException(context.getException());
+                    Object parseValue = sourceExpressionParser.parse(source, context);
+                    System.out.println("metricName: " + metricName + " source: " + source + ", parseValue: " + parseValue);
+                    if (parseValue != null) {
+                        node.setAttribute(metricName, parseValue);
                     }
                 }
             }
 
         } catch (Exception e) {
-            System.err.println("Error extracting attributes from metrics: " + e.getMessage());
+            System.err.println("Error extracting attributes from metrics: " );
+            e.printStackTrace();
         }
-    }
-
-    /**
-     * 解析source表达式（简化版本）
-     */
-    private Object parseSourceExpression(String source, Object target, Object[] args, Object returnObject) {
-        try {
-            // 简化的表达式解析
-            if ("target".equals(source) && target != null) {
-                return target.toString();
-            } else if ("args[0]".equals(source) && args != null && args.length > 0) {
-                return args[0];
-            } else if ("returnValue".equals(source)) {
-                return returnObject;
-            } else if (source.startsWith("args[") && source.endsWith("]")) {
-                // 解析 args[n] 格式
-                String indexStr = source.substring(5, source.length() - 1);
-                int index = Integer.parseInt(indexStr);
-                if (args != null && index >= 0 && index < args.length) {
-                    return args[index];
-                }
-            }
-
-        } catch (Exception e) {
-            // 忽略解析错误
-        }
-
-        return null;
     }
 
     /**
@@ -331,61 +318,7 @@ public class TraceFlowEnhancerAdviceListener extends AdviceListenerAdapter {
         return count;
     }
 
-    /**
-     * 简化方法名显示
-     */
-    private String simplifyMethodName(String methodSignature) {
-        if (methodSignature == null) {
-            return "unknown";
-        }
 
-        // 提取类名和方法名
-        int lastDot = methodSignature.lastIndexOf('.');
-        if (lastDot > 0) {
-            String className = methodSignature.substring(0, lastDot);
-            String methodName = methodSignature.substring(lastDot + 1);
-
-            // 简化类名（只保留最后一部分）
-            int classLastDot = className.lastIndexOf('.');
-            if (classLastDot > 0) {
-                className = className.substring(classLastDot + 1);
-            }
-
-            return className + "." + methodName;
-        }
-
-        return methodSignature;
-    }
-
-
-    
-
-    
-    /**
-     * 格式化参数显示
-     */
-    private String formatArgs(Object[] args) {
-        StringBuilder sb = new StringBuilder("[");
-        for (int i = 0; i < args.length; i++) {
-            if (i > 0) sb.append(", ");
-            if (args[i] != null) {
-                if (args[i] instanceof byte[]) {
-                    sb.append("byte[").append(((byte[])args[i]).length).append("]");
-                } else {
-                    String argStr = args[i].toString();
-                    if (argStr.length() > 50) {
-                        argStr = argStr.substring(0, 50) + "...";
-                    }
-                    sb.append(argStr);
-                }
-            } else {
-                sb.append("null");
-            }
-        }
-        sb.append("]");
-        return sb.toString();
-    }
-    
     /**
      * Java 8兼容的字符串重复方法
      */

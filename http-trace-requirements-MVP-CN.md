@@ -158,7 +158,7 @@
       "description": "指标描述",
       "targets": [
         {
-          "class": "目标类名",
+          "className": "目标类名",
           "methods": ["目标方法列表"]
         }
       ],

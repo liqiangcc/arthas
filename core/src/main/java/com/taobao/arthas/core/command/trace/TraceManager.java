@@ -87,7 +87,6 @@ public class TraceManager {
         if (context == null) {
             return null;
         }
-
         TraceNode node = new TraceNode(nodeType, methodSignature);
         node.setStartTime(System.currentTimeMillis());
         node.setThreadName(Thread.currentThread().getName());

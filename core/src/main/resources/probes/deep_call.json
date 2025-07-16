@@ -1,0 +1,108 @@
+{
+  "name": "deepCall",
+  "description": "Monitor deepCall request reception and processing",
+  "enabled": true,
+  "targets": [
+    {
+      "id": "demo.TestDeepCall.call1",
+      "className": "demo.TestDeepCall",
+      "methods": ["call1"],
+      "description": "call1"
+    },
+    {
+      "id": "demo.TestDeepCall.call2",
+      "className": "demo.TestDeepCall",
+      "methods": ["call2"],
+      "description": "call2"
+    },
+    {
+      "id": "demo.TestDeepCall.call3",
+      "className": "demo.TestDeepCall",
+      "methods": ["call3"],
+      "description": "call3"
+    },
+    {
+      "id": "demo.TestDeepCall.call4",
+      "className": "demo.TestDeepCall",
+      "methods": ["call4"],
+      "description": "call4"
+    }
+  ],
+  "metrics": [
+    {
+      "targetId": "demo.TestDeepCall.call1",
+      "name": "call1 param",
+      "description": "call1",
+      "source": "args[0]",
+      "type": "String",
+      "capturePoint": "after"
+    },
+    {
+      "targetId": "demo.TestDeepCall.call1",
+      "name": "call1 result",
+      "description": "call1",
+      "source": "returnValue",
+      "type": "String",
+      "capturePoint": "after"
+    },
+    {
+      "targetId": "demo.TestDeepCall.call2",
+      "name": "call2 param",
+      "description": "call2",
+      "source": "args[0]",
+      "type": "String",
+      "capturePoint": "after"
+    },
+    {
+      "targetId": "demo.TestDeepCall.call2",
+      "name": "call2 result",
+      "description": "call2",
+      "source": "returnValue",
+      "type": "String",
+      "capturePoint": "after"
+    },
+    {
+      "targetId": "demo.TestDeepCall.call3",
+      "name": "call3 param",
+      "description": "call3",
+      "source": "args[0]",
+      "type": "String",
+      "capturePoint": "after"
+    },
+    {
+      "targetId": "demo.TestDeepCall.call3",
+      "name": "call3 result",
+      "description": "call3",
+      "source": "returnValue",
+      "type": "String",
+      "capturePoint": "after"
+    },
+    {
+      "targetId": "demo.TestDeepCall.call4",
+      "name": "call4 param",
+      "description": "call4",
+      "source": "args[0]",
+      "type": "String",
+      "capturePoint": "after"
+    },
+    {
+      "targetId": "demo.TestDeepCall.call4",
+      "name": "call4 result",
+      "description": "call4",
+      "source": "returnValue",
+      "type": "String",
+      "capturePoint": "after"
+    }
+  ],
+  "output": {
+    "type": "biz",
+    "colorName": "CYAN",
+    "template": "[biz] Time: ${executionTime}ms | Thread: ${threadName} | writeLog"
+  },
+  "filters": [
+    {
+      "name": "Exclude static resources",
+      "condition": "executionTime > 0"
+    }
+  ]
+}

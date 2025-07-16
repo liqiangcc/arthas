@@ -195,9 +195,7 @@ public class TraceFlowCommand extends EnhancerCommand {
             }
         } catch (Exception e) {
             process.write("Failed to initialize probes: " + e.getMessage() + "\n");
-            if (verbose) {
-                e.printStackTrace();
-            }
+            e.printStackTrace();
             throw new RuntimeException("Failed to initialize probes", e);
         }
     }
@@ -415,7 +413,7 @@ public class TraceFlowCommand extends EnhancerCommand {
     @Override
     protected AdviceListener getAdviceListener(CommandProcess process) {
         // 阶段3：返回集成链路跟踪的监听器
-        return new TraceFlowEnhancerAdviceListener(this, process);
+        return new TraceFlowEnhancerAdviceListener(this, process, traceManager, probeManager);
     }
 
     /**
@@ -432,7 +430,7 @@ public class TraceFlowCommand extends EnhancerCommand {
                 System.out.println("[DEBUG] About to initialize ProbeManager...");
             }
 
-            ProbeManager probeManager = new ProbeManager();
+
 
             if (verbose) {
                 System.out.println("[DEBUG] ProbeManager created, about to initialize probes...");
@@ -516,7 +514,6 @@ public class TraceFlowCommand extends EnhancerCommand {
                 System.out.println("[DEBUG] Creating probe-based method matcher...");
             }
 
-            ProbeManager probeManager = new ProbeManager();
             probeManager.initializeProbes();
 
             // 收集所有探针的目标方法
@@ -582,7 +579,6 @@ public class TraceFlowCommand extends EnhancerCommand {
      */
     private void validateProbeConfigurations(CommandProcess process) {
         try {
-            ProbeManager probeManager = new ProbeManager();
             probeManager.initializeProbes();
 
             process.write("Validating probe configurations...\n");

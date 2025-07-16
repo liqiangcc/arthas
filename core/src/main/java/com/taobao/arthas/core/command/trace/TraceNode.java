@@ -1,5 +1,7 @@
 package com.taobao.arthas.core.command.trace;
 
+import com.taobao.arthas.core.view.Ansi;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -21,7 +23,8 @@ public class TraceNode {
     private Throwable exception;      // 异常信息
     private Object[] args;            // 方法参数
     private int depth = 0;            // 调用深度
-    
+    private ProbeConfig probeConfig;
+
     public TraceNode(String nodeType, String methodSignature) {
         this.nodeType = nodeType;
         this.methodSignature = methodSignature;
@@ -29,7 +32,11 @@ public class TraceNode {
         this.children = new ArrayList<>();
         this.attributes = new HashMap<>();
     }
-    
+
+    public ProbeConfig getProbeConfig() {
+        return probeConfig;
+    }
+
     /**
      * 添加子节点
      */
@@ -256,5 +263,9 @@ public class TraceNode {
     public String toString() {
         return String.format("TraceNode{type=%s, method=%s, time=%dms, children=%d}", 
             nodeType, methodSignature, getExecutionTime(), children.size());
+    }
+
+    public void setProbeConfig(ProbeConfig probeConfig) {
+        this.probeConfig = probeConfig;
     }
 }
