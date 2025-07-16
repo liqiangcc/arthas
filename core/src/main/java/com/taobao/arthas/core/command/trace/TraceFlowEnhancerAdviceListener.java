@@ -64,22 +64,35 @@ public class TraceFlowEnhancerAdviceListener extends AdviceListenerAdapter {
                 process.write("  Completed at: " + dateFormat.format(new Date(node.getEndTime())) + "\n");
             }
 
+            boolean filtered = filter(node);
+            if (!filtered) {
+                traceManager.endTrace();
+                return;
+            }
             // 基于nodeStack的出口判断：检查是否是trace的根节点
             boolean isTraceRoot = isTraceRootNode(node);
             if (isTraceRoot) {
                 if (command.isVerbose()) {
                     process.write("[DEBUG] Trace root exit detected, outputting tree trace for: " + node.getMethodSignature() + "\n");
                 }
+                node.setAttribute(command.getFilter(), true);
                 // 输出完整的树状trace结果
                 outputTreeTrace();
                 traceManager.endTrace();
                 // 完整的trace结束，增加计数
-                process.times().incrementAndGet();
-                if (isLimitExceeded(command.getCount() != null ? command.getCount() : 1, process.times().get())) {
+                int count = process.times().incrementAndGet();
+                if (isLimitExceeded(count, command.getCount())) {
                     abortProcess(process, command.getCount() != null ? command.getCount() : 1);
                 }
             }
         }
+    }
+
+    private boolean filter(TraceNode node) {
+        FilterEngine filterEngine = command.getFilterEngine();
+        boolean result = filterEngine.matches(node.getAttributes());
+        System.out.println("[DEBUG] filter result: " + result);
+        return result;
     }
 
 

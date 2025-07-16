@@ -13,6 +13,7 @@ import com.taobao.middleware.cli.annotations.Option;
 import com.taobao.middleware.cli.annotations.Summary;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * trace-flow命令 - 跟踪HTTP请求的完整执行链路
@@ -49,11 +50,15 @@ public class TraceFlowCommand extends EnhancerCommand {
     public TraceFlowCommand() {
         this.probeManager = new ProbeManager();
         this.traceManager = TraceManager.getInstance();
-        this.filterEngine = new FilterEngine();
+        this.filterEngine = new FilterEngine(filter);
         this.outputFormatter = new OutputFormatter();
 
         // 阶段3：根据探针配置动态计算最大匹配类数量
         this.maxNumOfMatchedClass = calculateMaxMatchedClassFromProbeConfig();
+    }
+
+    public FilterEngine getFilterEngine() {
+        return filterEngine;
     }
 
     @Override
@@ -86,7 +91,7 @@ public class TraceFlowCommand extends EnhancerCommand {
                 process.end();
                 return;
             }
-
+            filterEngine.setFilterExpression(filter);
             // 初始化探针
             initializeProbes(process);
 
@@ -630,6 +635,9 @@ public class TraceFlowCommand extends EnhancerCommand {
      */
     private int calculateMaxMatchedClassFromProbeConfig() {
         try {
+            if (Objects.nonNull(filter) && !filter.trim().isEmpty()) {
+                return Integer.MAX_VALUE;
+            }
             if (verbose) {
                 System.out.println("[DEBUG] Calculating max matched class from probe config...");
             }

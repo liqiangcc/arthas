@@ -31,7 +31,7 @@
   "metrics": [
     {
       "targetId": "demo.TestDeepCall.call1",
-      "name": "call1 param",
+      "name": "call1Param",
       "description": "call1",
       "source": "args[0]",
       "type": "String",
@@ -39,7 +39,7 @@
     },
     {
       "targetId": "demo.TestDeepCall.call1",
-      "name": "call1 result",
+      "name": "call1Result",
       "description": "call1",
       "source": "returnValue",
       "type": "String",

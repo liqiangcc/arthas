@@ -2,10 +2,7 @@ package com.taobao.arthas.core.command.trace;
 
 import com.taobao.arthas.core.view.Ansi;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * 链路跟踪节点 - 表示调用链中的一个节点
@@ -30,7 +27,7 @@ public class TraceNode {
         this.methodSignature = methodSignature;
         this.threadName = Thread.currentThread().getName();
         this.children = new ArrayList<>();
-        this.attributes = new HashMap<>();
+        this.attributes = new LinkedHashMap<>();
     }
 
     public ProbeConfig getProbeConfig() {

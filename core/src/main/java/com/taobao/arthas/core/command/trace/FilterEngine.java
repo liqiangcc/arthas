@@ -1,11 +1,24 @@
 package com.taobao.arthas.core.command.trace;
 
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 过滤引擎 - 阶段1基础版本
  */
 public class FilterEngine {
+    private String filterExpression;
+    private Set<String> metricsNames = new HashSet<>();
+    public void setFilterExpression(String filterExpression) {
+        this.filterExpression = filterExpression;
+        metricsNames.clear();
+    }
+
+    public FilterEngine(String filterExpression) {
+        this.filterExpression = filterExpression;
+        metricsNames.clear();
+    }
 
     /**
      * 检查指标是否匹配过滤条件
@@ -14,18 +27,42 @@ public class FilterEngine {
      * @param metrics 指标数据
      * @return 是否匹配
      */
-    public boolean matches(String filterExpression, Map<String, Object> metrics) {
+    public boolean matches(Map<String, Object> metrics) {
+        System.out.println("filter: " + filterExpression + " metricsNames: " + metricsNames + " metrics: " + metrics);
         if (filterExpression == null || filterExpression.trim().isEmpty()) {
             return true; // 无过滤条件，匹配所有
         }
+        // 特殊情况：true 匹配所有
+        if ("true".equals(filterExpression)) {
+            return true;
+        }
 
-        try {
-            // 阶段1：简单的过滤逻辑
-            return evaluateSimpleFilter(filterExpression.trim(), metrics);
-        } catch (Exception e) {
-            System.err.println("过滤表达式执行失败: " + filterExpression + ", 错误: " + e.getMessage());
+        // 特殊情况：false 匹配无
+        if ("false".equals(filterExpression)) {
             return false;
         }
+        if (!metricsNames.isEmpty()) {
+            for (String metricsName : metricsNames) {
+                if (metrics.containsKey(metricsName)) {
+                    try {
+                        // 阶段1：简单的过滤逻辑
+                        return evaluateSimpleFilter(filterExpression.trim(), metrics);
+                    } catch (Exception e) {
+                        System.err.println("过滤表达式执行失败: " + filterExpression + ", 错误: " + e.getMessage());
+                        return true;
+                    }
+                }
+            }
+        } else {
+            try {
+                // 阶段1：简单的过滤逻辑
+                return evaluateSimpleFilter(filterExpression.trim(), metrics);
+            } catch (Exception e) {
+                System.err.println("过滤表达式执行失败: " + filterExpression + ", 错误: " + e.getMessage());
+                return true;
+            }
+        }
+        return true;
     }
 
     /**
@@ -33,16 +70,6 @@ public class FilterEngine {
      */
     private boolean evaluateSimpleFilter(String expression, Map<String, Object> metrics) {
         // 阶段1：支持一些基本的过滤表达式
-        
-        // 特殊情况：true 匹配所有
-        if ("true".equals(expression)) {
-            return true;
-        }
-        
-        // 特殊情况：false 匹配无
-        if ("false".equals(expression)) {
-            return false;
-        }
 
         // 简单的数值比较：executionTime > 1000
         if (expression.contains(" > ")) {
@@ -77,6 +104,7 @@ public class FilterEngine {
         if (parts.length != 2) return false;
         
         String metricName = parts[0].trim();
+        metricsNames.add(metricName);
         String valueStr = parts[1].trim();
         
         Object metricValue = metrics.get(metricName);
@@ -97,7 +125,7 @@ public class FilterEngine {
         
         String metricName = parts[0].trim();
         String valueStr = parts[1].trim();
-        
+        metricsNames.add(metricName);
         Object metricValue = metrics.get(metricName);
         if (metricValue == null) return false;
         
@@ -116,7 +144,7 @@ public class FilterEngine {
         
         String metricName = parts[0].trim();
         String expectedValue = parts[1].trim().replace("'", "").replace("\"", "");
-        
+        metricsNames.add(metricName);
         Object metricValue = metrics.get(metricName);
         if (metricValue == null) return false;
         
@@ -134,7 +162,7 @@ public class FilterEngine {
         String metricName = expression.substring(0, dotIndex).trim();
         String searchValue = expression.substring(parenIndex + 1, closeParenIndex)
                 .trim().replace("'", "").replace("\"", "");
-        
+        metricsNames.add(metricName);
         Object metricValue = metrics.get(metricName);
         if (metricValue == null) return false;
         
@@ -152,7 +180,7 @@ public class FilterEngine {
         String metricName = expression.substring(0, dotIndex).trim();
         String prefixValue = expression.substring(parenIndex + 1, closeParenIndex)
                 .trim().replace("'", "").replace("\"", "");
-        
+        metricsNames.add(metricName);
         Object metricValue = metrics.get(metricName);
         if (metricValue == null) return false;
         
@@ -182,5 +210,10 @@ public class FilterEngine {
         if (!hasSupported) {
             throw new IllegalArgumentException("阶段1暂不支持此过滤表达式: " + expression);
         }
+    }
+
+    public boolean matches(String exp, Map<String, Object> metrics) {
+        setFilterExpression(exp);
+        return matches(metrics);
     }
 }
