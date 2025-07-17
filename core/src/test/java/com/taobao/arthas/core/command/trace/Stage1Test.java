@@ -48,16 +48,16 @@ public class Stage1Test {
     @Test
     @DisplayName("测试配置文件加载")
     void testProbeConfigLoading() {
-        List<ProbeConfig> configs = probeManager.loadBuiltinProbes();
+        List<ProbeConfig> configs = probeManager.initialize(true);
+
+        // 验证加载了探针（现在只有内置的deep_call.json）
+        assertTrue(configs.size() >= 1);
         
-        // 验证加载了4个探针
-        assertEquals(4, configs.size());
-        
-        // 验证探针名称
-        assertTrue(configs.stream().anyMatch(c -> "Database探针".equals(c.getName())));
-        assertTrue(configs.stream().anyMatch(c -> "HTTP Server探针".equals(c.getName())));
-        assertTrue(configs.stream().anyMatch(c -> "HTTP Client探针".equals(c.getName())));
-        assertTrue(configs.stream().anyMatch(c -> "File Operations探针".equals(c.getName())));
+        // 验证包含内置探针
+        assertTrue(configs.stream().anyMatch(c -> "deepCall".equals(c.getName())));
+
+        // 如果有外部探针配置文件，也会被加载
+        // 这里不强制要求特定的探针存在，因为外部配置是可选的
         
         // 验证所有探针都是启用状态
         assertTrue(configs.stream().allMatch(ProbeConfig::isEnabled));
@@ -66,10 +66,10 @@ public class Stage1Test {
     @Test
     @DisplayName("测试探针配置验证")
     void testProbeConfigValidation() {
-        ProbeConfig config = probeManager.getProbeConfig("Database探针");
+        ProbeConfig config = probeManager.getProbeConfig("deepCall");
         assertNotNull(config);
-        assertEquals("Database探针", config.getName());
-        assertEquals("监控JDBC数据库操作", config.getDescription());
+        assertEquals("deepCall", config.getName());
+        assertEquals("Monitor deepCall request reception and processing", config.getDescription());
         assertTrue(config.isEnabled());
         assertNotNull(config.getMetrics());
         assertFalse(config.getMetrics().isEmpty());
@@ -194,7 +194,7 @@ public class Stage1Test {
         probeManager.initializeProbes();
         
         assertTrue(probeManager.isInitialized());
-        assertEquals(4, probeManager.getActiveProbeCount()); // 4个启用的探针
+        assertTrue(probeManager.getActiveProbeCount() >= 1); // 至少有1个启用的探针（deep_call）
     }
 
     @Test

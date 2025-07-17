@@ -29,6 +29,7 @@ import java.util.Objects;
         "  trace-flow --filter \"executionTime > 1000\"   # 只显示慢请求\n" +
         "  trace-flow --list-probes                     # 列出所有探针\n" +
         "  trace-flow --show-config database            # 显示探针配置\n" +
+        "  trace-flow --reload-probes                   # 重新加载探针配置\n" +
         "  trace-flow --verbose                         # 详细模式输出\n" +
         Constants.WIKI + Constants.WIKI_HOME + "trace-flow")
 public class TraceFlowCommand extends EnhancerCommand {
@@ -40,6 +41,7 @@ public class TraceFlowCommand extends EnhancerCommand {
     private Long stackTraceThreshold;
     private boolean listProbes = false;
     private String showConfig;
+    private boolean reloadProbes = false;
     private boolean help = false;
 
     private ProbeManager probeManager;
@@ -85,6 +87,13 @@ public class TraceFlowCommand extends EnhancerCommand {
                 return;
             }
 
+            // 重新加载探针配置
+            if (reloadProbes) {
+                reloadProbeConfigs(process);
+                process.end();
+                return;
+            }
+
             // 验证参数
             if (count <= 0) {
                 process.write("Error: Trace count must be greater than 0\n");
@@ -110,12 +119,9 @@ public class TraceFlowCommand extends EnhancerCommand {
     private void listAvailableProbes(CommandProcess process) {
         process.write("Available Probes:\n");
         process.write("================\n");
-
         try {
             // 确保探针管理器已初始化
-            probeManager.initializeProbes();
-
-            List<ProbeConfig> configs = probeManager.loadBuiltinProbes();
+            List<ProbeConfig> configs = probeManager.initialize();
             for (ProbeConfig config : configs) {
                 process.write(String.format("- %s: %s (Enabled: %s)\n",
                     config.getName(),
@@ -183,6 +189,80 @@ public class TraceFlowCommand extends EnhancerCommand {
             }
         } catch (Exception e) {
             process.write("Failed to get probe configuration: " + e.getMessage() + "\n");
+        }
+    }
+
+    private void reloadProbeConfigs(CommandProcess process) {
+        process.write("Reloading probe configurations...\n");
+
+        try {
+            // 重置探针管理器状态
+            probeManager.reset();
+
+            // 重新初始化探针配置
+            List<ProbeConfig> configs = probeManager.reInitialize();
+
+            process.write("Successfully reloaded " + configs.size() + " probe configurations:\n");
+
+            // 显示加载的探针信息
+            for (ProbeConfig config : configs) {
+                String status = config.isEnabled() ? "Enabled" : "Disabled";
+                process.write(String.format("  - %s: %s (%s)\n",
+                    config.getName(),
+                    config.getDescription(),
+                    status));
+            }
+
+            // 如果是详细模式，显示更多信息
+            if (verbose) {
+                process.write("\nProbe loading details:\n");
+                process.write("- Internal probes loaded from JAR: /probes/\n");
+                process.write("- External probes loaded from: " + getExternalProbeDirectory() + "\n");
+                process.write("- Total active probes: " + probeManager.getActiveProbeCount() + "\n");
+            }
+
+        } catch (Exception e) {
+            process.write("Failed to reload probe configurations: " + e.getMessage() + "\n");
+            if (verbose) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    private String getExternalProbeDirectory() {
+        // 获取外部探针目录路径（与ProbeManager中的逻辑一致）
+        try {
+            // 1. 尝试从ArthasBootstrap获取arthasHome
+            String arthasHome = getArthasHomeFromBootstrap();
+            if (arthasHome != null && !arthasHome.trim().isEmpty()) {
+                return arthasHome.trim() + "/probes";
+            }
+        } catch (Exception e) {
+            // 忽略异常，继续尝试其他方式
+        }
+
+        // 2. 降级：尝试从系统属性获取
+        String arthasHomeProp = System.getProperty("arthas.home");
+        if (arthasHomeProp != null && !arthasHomeProp.trim().isEmpty()) {
+            return arthasHomeProp.trim() + "/probes";
+        }
+
+        // 3. 最后降级到当前目录
+        return "./probes";
+    }
+
+    private String getArthasHomeFromBootstrap() {
+        try {
+            // 获取ArthasBootstrap实例并调用arthasHome方法
+            com.taobao.arthas.core.server.ArthasBootstrap bootstrap =
+                com.taobao.arthas.core.server.ArthasBootstrap.getInstance();
+
+            // 通过反射调用私有的arthasHome方法
+            java.lang.reflect.Method arthasHomeMethod = bootstrap.getClass().getDeclaredMethod("arthasHome");
+            arthasHomeMethod.setAccessible(true);
+            return (String) arthasHomeMethod.invoke(bootstrap);
+        } catch (Exception e) {
+            return null;
         }
     }
 
@@ -379,6 +459,12 @@ public class TraceFlowCommand extends EnhancerCommand {
         this.showConfig = showConfig;
     }
 
+    @Option(longName = "reload-probes", flag = true)
+    @Description("Reload probe configurations from external directory")
+    public void setReloadProbes(boolean reloadProbes) {
+        this.reloadProbes = reloadProbes;
+    }
+
     @Option(shortName = "h", longName = "help", flag = true)
     @Description("Show help information")
     public void setHelp(boolean help) {
@@ -393,6 +479,7 @@ public class TraceFlowCommand extends EnhancerCommand {
     public Long getStackTraceThreshold() { return stackTraceThreshold; }
     public boolean isListProbes() { return listProbes; }
     public String getShowConfig() { return showConfig; }
+    public boolean isReloadProbes() { return reloadProbes; }
     public boolean isHelp() { return help; }
 
     // ========== 阶段3：EnhancerCommand必需的方法 ==========

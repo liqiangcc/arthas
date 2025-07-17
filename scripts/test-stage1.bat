@@ -138,7 +138,7 @@ echo             TraceFlowCommand command = new TraceFlowCommand(); >> TempTest.
 echo             System.out.println("√ TraceFlowCommand创建成功"); >> TempTest.java
 echo. >> TempTest.java
 echo             ProbeManager manager = new ProbeManager(); >> TempTest.java
-echo             var configs = manager.loadBuiltinProbes(); >> TempTest.java
+echo             var configs = manager.initialize(); >> TempTest.java
 echo             System.out.println("√ 加载了 " + configs.size() + " 个探针配置"); >> TempTest.java
 echo. >> TempTest.java
 echo             SourceExpressionParser parser = new SourceExpressionParser(); >> TempTest.java

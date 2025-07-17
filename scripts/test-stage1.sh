@@ -101,7 +101,7 @@ public class TempTest {
             
             // 测试配置加载
             ProbeManager manager = new ProbeManager();
-            var configs = manager.loadBuiltinProbes();
+            var configs = manager.initialize();
             System.out.println("✓ 加载了 " + configs.size() + " 个探针配置");
             
             // 测试表达式解析

@@ -15,39 +15,239 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class ProbeManager {
 
-    private static final String PROBE_CONFIG_DIR = "/probes/";
+    private static final String INTERNAL_PROBE_CONFIG_DIR = "/probes/";
+    private static final String EXTERNAL_PROBE_CONFIG_DIR = "./probes";
+
+    // ARTHAS_HOME环境变量名
+    private static final String ARTHAS_HOME_ENV = "ARTHAS_HOME";
 
     private final Map<String, ProbeConfig> probeConfigs = new ConcurrentHashMap<>();
     private final Map<String, Object> activeProbes = new ConcurrentHashMap<>();
     private boolean initialized = false;
     private HashMap<String, ProbeConfig> methodSignature2ProbeConfig = new HashMap<>();
 
+    public  List<ProbeConfig>  initialize() {
+        return initialize(false);
+    }
     /**
-     * 加载内置探针配置
-     * 从JSON配置文件中读取
+     * 初始化探针管理器
      */
-    public List<ProbeConfig> loadBuiltinProbes() {
+    public List<ProbeConfig> initialize(boolean reload) {
+        if (initialized && !reload) {
+            return new ArrayList<>(probeConfigs.values());
+        }
+        probeConfigs.clear();
+        methodSignature2ProbeConfig.clear();
+        activeProbes.clear();
+
         List<ProbeConfig> configs = new ArrayList<>();
 
-        // 配置驱动：动态获取探针配置文件
-        String[] probeFiles = getProbeConfigFiles();
+        // 1. 加载内置探针配置文件（只有deep_call.json）
+        loadInternalProbeConfigs(configs);
 
-        for (String probeFile : probeFiles) {
+        // 2. 加载外部探针配置文件（从启动目录下的probes文件夹）
+        loadExternalProbeConfigs(configs);
+
+        initialized = true;
+        return configs;
+    }
+
+    /**
+     * 加载内置探针配置（从JAR包中的/probes目录）
+     */
+    private void loadInternalProbeConfigs(List<ProbeConfig> configs) {
+        String[] internalProbeFiles = getInternalProbeConfigFiles();
+
+        for (String probeFile : internalProbeFiles) {
             try {
-                ProbeConfig config = loadProbeConfigFromResource(PROBE_CONFIG_DIR + probeFile);
+                ProbeConfig config = loadProbeConfigFromResource(INTERNAL_PROBE_CONFIG_DIR + probeFile);
                 if (config != null) {
                     configs.add(config);
                     probeConfigs.put(config.getName(), config);
+                    System.out.println("Loaded internal probe config: " + probeFile);
                 }
             } catch (Exception e) {
+                System.err.println("Failed to load internal probe config: " + probeFile + ", error: " + e.getMessage());
                 e.printStackTrace(System.err);
-                System.err.println("Failed to load probe config: " + probeFile + ", error: " + e.getMessage());
-                // 配置驱动：如果JSON文件加载失败，不使用备用配置，直接跳过
-                // 这确保了所有逻辑都严格基于配置文件
+            }
+        }
+    }
+
+    /**
+     * 加载外部探针配置文件（从ARTHAS_HOME目录下的probes文件夹）
+     */
+    private void loadExternalProbeConfigs(List<ProbeConfig> configs) {
+        try {
+            java.io.File externalProbeDir = getExternalProbeDirectory();
+            if (externalProbeDir == null) {
+                return;
+            }
+            if (!externalProbeDir.exists()) {
+                System.out.println("External probe directory not found: " + externalProbeDir.getAbsolutePath());
+                System.out.println("You can create this directory and place probe config files (.json) there for external probes.");
+                return;
+            }
+
+            if (!externalProbeDir.isDirectory()) {
+                System.err.println("External probe path is not a directory: " + externalProbeDir.getAbsolutePath());
+                return;
+            }
+
+            java.io.File[] jsonFiles = externalProbeDir.listFiles((dir, name) -> name.endsWith(".json"));
+            if (jsonFiles == null || jsonFiles.length == 0) {
+                System.out.println("No external probe config files found in: " + externalProbeDir.getAbsolutePath());
+                return;
+            }
+
+            System.out.println("Loading external probe configs from: " + externalProbeDir.getAbsolutePath());
+            for (java.io.File jsonFile : jsonFiles) {
+                try {
+                    ProbeConfig config = loadProbeConfigFromFile(jsonFile);
+                    if (config != null) {
+                        configs.add(config);
+                        probeConfigs.put(config.getName(), config);
+                        System.out.println("Loaded external probe config: " + jsonFile.getName());
+                    }
+                } catch (Exception e) {
+                    System.err.println("Failed to load external probe config: " + jsonFile.getName() + ", error: " + e.getMessage());
+                    e.printStackTrace(System.err);
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Error scanning external probe directory: " + e.getMessage());
+            e.printStackTrace(System.err);
+        }
+    }
+
+    /**
+     * 重置探针管理器状态，用于重新加载配置
+     */
+    public void reset() {
+        initialized = false;
+        probeConfigs.clear();
+        activeProbes.clear();
+        methodSignature2ProbeConfig.clear();
+        System.out.println("ProbeManager reset completed");
+    }
+
+    /**
+     * 获取外部探针配置目录
+     * 从ArthasBootstrap获取arthasHome路径
+     */
+    private java.io.File getExternalProbeDirectory() {
+        try {
+            // 1. 尝试从ArthasBootstrap获取arthasHome
+            String arthasHome = getArthasHomeFromBootstrap();
+            if (arthasHome != null && !arthasHome.trim().isEmpty()) {
+                java.io.File arthasHomeDir = new java.io.File(arthasHome.trim());
+                if (arthasHomeDir.exists() && arthasHomeDir.isDirectory()) {
+                    java.io.File probeDir = new java.io.File(arthasHomeDir, EXTERNAL_PROBE_CONFIG_DIR);
+                    System.out.println("Using Arthas home probe directory: " + probeDir.getAbsolutePath());
+                    return probeDir;
+                } else {
+                    System.err.println("Arthas home directory does not exist: " + arthasHome);
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Failed to get arthas home from bootstrap: " + e.getMessage());
+        }
+
+        // 2. 降级：尝试从系统属性获取
+        String arthasHomeProp = System.getProperty("arthas.home");
+        if (arthasHomeProp != null && !arthasHomeProp.trim().isEmpty()) {
+            java.io.File arthasHomeDir = new java.io.File(arthasHomeProp.trim());
+            if (arthasHomeDir.exists() && arthasHomeDir.isDirectory()) {
+                java.io.File probeDir = new java.io.File(arthasHomeDir, EXTERNAL_PROBE_CONFIG_DIR);
+                System.out.println("Using arthas.home system property probe directory: " + probeDir.getAbsolutePath());
+                return probeDir;
+            } else {
+                System.err.println("arthas.home directory does not exist: " + arthasHomeProp);
             }
         }
 
-        return configs;
+        // 3. 最后降级到当前目录
+        java.io.File currentDirProbeDir = new java.io.File(EXTERNAL_PROBE_CONFIG_DIR);
+        System.out.println("Using current directory probe directory: " + currentDirProbeDir.getAbsolutePath());
+        System.out.println("Tip: Arthas home not found, using current directory as fallback.");
+        return currentDirProbeDir;
+    }
+
+    /**
+     * 从ArthasBootstrap获取arthasHome路径
+     */
+    private String getArthasHomeFromBootstrap() {
+        try {
+            // 获取ArthasBootstrap实例并调用arthasHome方法
+            com.taobao.arthas.core.server.ArthasBootstrap bootstrap =
+                com.taobao.arthas.core.server.ArthasBootstrap.getInstance();
+
+            // 通过反射调用私有的arthasHome方法
+            java.lang.reflect.Method arthasHomeMethod = bootstrap.getClass().getDeclaredMethod("arthasHome");
+            arthasHomeMethod.setAccessible(true);
+            return (String) arthasHomeMethod.invoke(bootstrap);
+        } catch (Exception e) {
+            System.err.println("Failed to get arthas home from bootstrap instance: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 获取内置探针配置文件列表（从JAR包中的/probes目录）
+     */
+    private String[] getInternalProbeConfigFiles() {
+        try {
+            java.net.URL url = getClass().getResource(INTERNAL_PROBE_CONFIG_DIR);
+            if (url != null) {
+                String protocol = url.getProtocol();
+
+                if ("file".equals(protocol)) {
+                    // 文件系统环境
+                    java.io.File dir = new java.io.File(url.toURI());
+                    if (dir.exists() && dir.isDirectory()) {
+                        String[] files = dir.list((dir1, name) -> name.endsWith(".json"));
+                        if (files != null && files.length > 0) {
+                            return files;
+                        }
+                    }
+                } else if ("jar".equals(protocol)) {
+                    // JAR包环境
+                    return getProbeConfigFilesFromJar(url);
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Error scanning internal probe config directory: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        // 如果扫描失败，返回空数组（不使用备用列表）
+        return new String[]{};
+    }
+
+    /**
+     * 从文件加载探针配置
+     */
+    private ProbeConfig loadProbeConfigFromFile(java.io.File file) {
+        try (java.io.FileInputStream fis = new java.io.FileInputStream(file)) {
+            // Java 8兼容的读取方式
+            byte[] buffer = new byte[(int) file.length()];
+            fis.read(buffer);
+            String content = new String(buffer, java.nio.charset.StandardCharsets.UTF_8);
+
+            // 解析JSON
+            ProbeConfig config = JSON.parseObject(content, ProbeConfig.class);
+
+            // 处理旧格式配置（将targetId转换为targets）
+            processLegacyFormat(config);
+
+            // 验证配置
+            validateProbeConfig(config);
+
+            return config;
+        } catch (Exception e) {
+            System.err.println("Error loading probe config from file: " + file.getAbsolutePath());
+            e.printStackTrace();
+            return null;
+        }
     }
 
     /**
@@ -56,7 +256,7 @@ public class ProbeManager {
      */
     private String[] getProbeConfigFiles() {
         try {
-            java.net.URL url = getClass().getResource(PROBE_CONFIG_DIR);
+            java.net.URL url = getClass().getResource(INTERNAL_PROBE_CONFIG_DIR);
             if (url != null) {
                 String protocol = url.getProtocol();
 
@@ -125,14 +325,12 @@ public class ProbeManager {
     }
 
     /**
-     * 返回已知的探针配置文件列表（备选方案）
+     * 返回已知的内置探针配置文件列表（备选方案）
+     * 只包含JAR包中应该存在的配置文件
      */
     private String[] getKnownProbeConfigFiles() {
         return new String[]{
-            "http-server-probe.json",
-            "database-probe.json",
-            "file-operations-probe.json",
-            "http-client-probe.json"
+            "deep_call.json"
         };
     }
 
@@ -273,11 +471,11 @@ public class ProbeManager {
      * 获取探针配置
      */
     public ProbeConfig getProbeConfig(String probeName) {
-        // 如果还没有加载，先加载内置探针
+        // 如果还没有加载，先初始化
         if (probeConfigs.isEmpty()) {
-            loadBuiltinProbes();
+            initialize(true);
         }
-        
+
         return probeConfigs.get(probeName);
     }
 
@@ -286,7 +484,7 @@ public class ProbeManager {
      */
     public Map<String, ProbeConfig> getAllProbeConfigs() {
         if (probeConfigs.isEmpty()) {
-            loadBuiltinProbes();
+            initialize(true);
         }
         return new HashMap<>(probeConfigs);
     }
@@ -299,8 +497,8 @@ public class ProbeManager {
             return;
         }
 
-        // 加载内置探针配置
-        List<ProbeConfig> configs = loadBuiltinProbes();
+        // 初始化探针配置
+        List<ProbeConfig> configs = initialize(true);
         
         // 初始化启用的探针
         for (ProbeConfig config : configs) {
@@ -342,15 +540,6 @@ public class ProbeManager {
         return activeProbes.size();
     }
 
-    /**
-     * 重置管理器状态（主要用于测试）
-     */
-    public void reset() {
-        probeConfigs.clear();
-        activeProbes.clear();
-        initialized = false;
-    }
-
     public ProbeConfig getProbeConfig(Class<?> clazz, ArthasMethod method) {
         String clazzName = clazz.getName();
         String methodName = method.getName();
@@ -370,6 +559,10 @@ public class ProbeManager {
             }
         }
         return this.methodSignature2ProbeConfig.get(methodSignature);
+    }
+
+    public List<ProbeConfig> reInitialize() {
+        return initialize(true);
     }
 
     /**

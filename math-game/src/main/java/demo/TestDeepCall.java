@@ -1,12 +1,14 @@
 package demo;
 
+import java.util.Objects;
+
 public class TestDeepCall implements DeepCall {
 
     public static void main(String[] args) {
         int i = 0;
         while (true) {
             try {
-                new TestDeepCall().call1(i++);
+                new TestDeepCall().call1(Objects.toString(i++));
             } finally {
                 try {
                     Thread.sleep(5000);
