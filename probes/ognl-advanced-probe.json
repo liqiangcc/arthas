@@ -1,0 +1,153 @@
+{
+  "name": "OGNL高级表达式探针",
+  "description": "展示OGNL表达式的强大功能，支持复杂的数据提取和计算",
+  "enabled": true,
+  "metrics": [
+    {
+      "name": "requestMethod",
+      "description": "HTTP请求方法",
+      "targets": [
+        {
+          "className": "org.apache.coyote.http11.Http11Processor",
+          "methods": ["service"]
+        }
+      ],
+      "source": "args[0].getMethod()",
+      "type": "string",
+      "capturePoint": "before"
+    },
+    {
+      "name": "contentLength",
+      "description": "内容长度（整数）",
+      "targets": [
+        {
+          "className": "org.apache.coyote.http11.Http11Processor",
+          "methods": ["service"]
+        }
+      ],
+      "source": "@utils@parseInt(args[0].getHeader(\"content-length\"))",
+      "type": "int",
+      "capturePoint": "before"
+    },
+    {
+      "name": "bufferUsage",
+      "description": "缓冲区使用率（百分比）",
+      "targets": [
+        {
+          "className": "org.apache.coyote.http11.Http11Processor",
+          "methods": ["service"]
+        }
+      ],
+      "source": "this.inputBuffer.end > 0 ? (this.inputBuffer.end * 100) / this.inputBuffer.buf.length : 0",
+      "type": "double",
+      "capturePoint": "before"
+    },
+    {
+      "name": "headerLength",
+      "description": "HTTP头部长度",
+      "targets": [
+        {
+          "className": "org.apache.coyote.http11.Http11Processor",
+          "methods": ["service"]
+        }
+      ],
+      "source": "this.inputBuffer.end - this.inputBuffer.pos",
+      "type": "int",
+      "capturePoint": "before"
+    },
+    {
+      "name": "requestType",
+      "description": "请求类型分类",
+      "targets": [
+        {
+          "className": "org.apache.coyote.http11.Http11Processor",
+          "methods": ["service"]
+        }
+      ],
+      "source": "args[0].getHeader(\"content-type\") != null && args[0].getHeader(\"content-type\").contains(\"json\") ? \"JSON\" : (args[0].getHeader(\"content-type\") != null && args[0].getHeader(\"content-type\").contains(\"form\") ? \"FORM\" : \"OTHER\")",
+      "type": "string",
+      "capturePoint": "before"
+    },
+    {
+      "name": "hasBody",
+      "description": "是否有请求体",
+      "targets": [
+        {
+          "className": "org.apache.coyote.http11.Http11Processor",
+          "methods": ["service"]
+        }
+      ],
+      "source": "@utils@parseInt(args[0].getHeader(\"content-length\")) > 0",
+      "type": "boolean",
+      "capturePoint": "before"
+    },
+    {
+      "name": "isSecure",
+      "description": "是否为HTTPS请求",
+      "targets": [
+        {
+          "className": "org.apache.coyote.http11.Http11Processor",
+          "methods": ["service"]
+        }
+      ],
+      "source": "args[0].getScheme() != null && args[0].getScheme().equals(\"https\")",
+      "type": "boolean",
+      "capturePoint": "before"
+    },
+    {
+      "name": "userAgent",
+      "description": "用户代理（简化）",
+      "targets": [
+        {
+          "className": "org.apache.coyote.http11.Http11Processor",
+          "methods": ["service"]
+        }
+      ],
+      "source": "args[0].getHeader(\"user-agent\") != null ? (args[0].getHeader(\"user-agent\").length() > 50 ? args[0].getHeader(\"user-agent\").substring(0, 50) + \"...\" : args[0].getHeader(\"user-agent\")) : \"unknown\"",
+      "type": "string",
+      "capturePoint": "before"
+    },
+    {
+      "name": "totalMessageSize",
+      "description": "完整HTTP消息大小估算",
+      "targets": [
+        {
+          "className": "org.apache.coyote.http11.Http11Processor",
+          "methods": ["service"]
+        }
+      ],
+      "source": "this.inputBuffer.end + (@utils@parseInt(args[0].getHeader(\"content-length\")) != null ? @utils@parseInt(args[0].getHeader(\"content-length\")) : 0)",
+      "type": "int",
+      "capturePoint": "before"
+    },
+    {
+      "name": "processingTime",
+      "description": "处理时间",
+      "source": "endTime - startTime",
+      "type": "long",
+      "unit": "milliseconds",
+      "capturePoint": "after"
+    },
+    {
+      "name": "performanceLevel",
+      "description": "性能等级",
+      "source": "processingTime < 10 ? \"EXCELLENT\" : (processingTime < 50 ? \"GOOD\" : (processingTime < 200 ? \"FAIR\" : \"SLOW\"))",
+      "type": "string",
+      "capturePoint": "after"
+    }
+  ],
+  "output": {
+    "type": "OGNL_ADVANCED",
+    "template": "[OGNL] ${requestMethod} ${requestType} - Size: ${totalMessageSize}B (${bufferUsage}% buffer) - ${performanceLevel} (${processingTime}ms)"
+  },
+  "filters": [
+    {
+      "name": "排除健康检查",
+      "condition": "!args[0].getRequestURI().contains(\"/health\")"
+    },
+    {
+      "name": "只记录有意义的请求",
+      "condition": "totalMessageSize > 100"
+    }
+  ]
+}

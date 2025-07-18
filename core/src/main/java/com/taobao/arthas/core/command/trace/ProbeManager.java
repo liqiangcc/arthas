@@ -1,6 +1,7 @@
 package com.taobao.arthas.core.command.trace;
 
 import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
 import com.taobao.arthas.core.advisor.ArthasMethod;
 
 import java.io.IOException;
@@ -18,13 +19,24 @@ public class ProbeManager {
     private static final String INTERNAL_PROBE_CONFIG_DIR = "/probes/";
     private static final String EXTERNAL_PROBE_CONFIG_DIR = "./probes";
 
-    // ARTHAS_HOME环境变量名
-    private static final String ARTHAS_HOME_ENV = "ARTHAS_HOME";
-
     private final Map<String, ProbeConfig> probeConfigs = new ConcurrentHashMap<>();
     private final Map<String, Object> activeProbes = new ConcurrentHashMap<>();
     private boolean initialized = false;
     private HashMap<String, ProbeConfig> methodSignature2ProbeConfig = new HashMap<>();
+
+    private static final ProbeManager instance = new ProbeManager();
+    private Set<String> enableProbeMethods = new HashSet<>();
+    private Set<String> enableProbeClassNames = new HashSet<>();;
+    private HashMap<String, List<ProbeConfig.MetricConfig>> methodSignature2MetricConfig = new HashMap<>();
+
+    public ProbeManager() {
+        System.out.println("[DEBUG] ProbeManager created");
+        new RuntimeException().printStackTrace(System.err);
+    }
+
+    public static ProbeManager getInstance() {
+        return instance;
+    }
 
     public  List<ProbeConfig>  initialize() {
         return initialize(false);
@@ -36,9 +48,9 @@ public class ProbeManager {
         if (initialized && !reload) {
             return new ArrayList<>(probeConfigs.values());
         }
-        probeConfigs.clear();
-        methodSignature2ProbeConfig.clear();
-        activeProbes.clear();
+        System.out.println("Initializing probe manager@" + this.hashCode() + ",initialized = " + initialized + ",reload = " + reload);
+        new RuntimeException().printStackTrace(System.err);
+        clear();
 
         List<ProbeConfig> configs = new ArrayList<>();
 
@@ -49,7 +61,18 @@ public class ProbeManager {
         loadExternalProbeConfigs(configs);
 
         initialized = true;
+        System.out.println("ProbeManager initialized completed, probe count = " + probeConfigs.size());
+        System.out.println("Method…  probeConfigs: " + JSONObject.toJSONString(probeConfigs));
         return configs;
+    }
+
+    private void clear() {
+        probeConfigs.clear();
+        methodSignature2ProbeConfig.clear();
+        methodSignature2MetricConfig.clear();
+        activeProbes.clear();
+        enableProbeMethods.clear();
+        enableProbeClassNames.clear();
     }
 
     /**
@@ -106,10 +129,10 @@ public class ProbeManager {
                     if (config != null) {
                         configs.add(config);
                         probeConfigs.put(config.getName(), config);
-                        System.out.println("Loaded external probe config: " + jsonFile.getName());
+                        System.out.println("Loaded external probe config: " + jsonFile.getAbsolutePath());
                     }
                 } catch (Exception e) {
-                    System.err.println("Failed to load external probe config: " + jsonFile.getName() + ", error: " + e.getMessage());
+                    System.err.println("Failed to load external probe config: " + jsonFile.getAbsolutePath() + ", error: " + e.getMessage());
                     e.printStackTrace(System.err);
                 }
             }
@@ -127,6 +150,7 @@ public class ProbeManager {
         probeConfigs.clear();
         activeProbes.clear();
         methodSignature2ProbeConfig.clear();
+        methodSignature2MetricConfig.clear();
         System.out.println("ProbeManager reset completed");
     }
 
@@ -473,7 +497,7 @@ public class ProbeManager {
     public ProbeConfig getProbeConfig(String probeName) {
         // 如果还没有加载，先初始化
         if (probeConfigs.isEmpty()) {
-            initialize(true);
+            initialize();
         }
 
         return probeConfigs.get(probeName);
@@ -484,7 +508,7 @@ public class ProbeManager {
      */
     public Map<String, ProbeConfig> getAllProbeConfigs() {
         if (probeConfigs.isEmpty()) {
-            initialize(true);
+            initialize();
         }
         return new HashMap<>(probeConfigs);
     }
@@ -498,7 +522,7 @@ public class ProbeManager {
         }
 
         // 初始化探针配置
-        List<ProbeConfig> configs = initialize(true);
+        List<ProbeConfig> configs = initialize();
         
         // 初始化启用的探针
         for (ProbeConfig config : configs) {
@@ -541,18 +565,14 @@ public class ProbeManager {
     }
 
     public ProbeConfig getProbeConfig(Class<?> clazz, ArthasMethod method) {
-        String clazzName = clazz.getName();
-        String methodName = method.getName();
-        String methodSignature = clazzName + "." + methodName;
+        String methodSignature = buildMethodSignature(clazz, method);
         if (methodSignature2ProbeConfig.isEmpty()) {
             for (ProbeConfig config : probeConfigs.values()) {
                 List<ProbeConfig.TargetConfig> targets = config.getTargets();
                 if (Objects.nonNull( targets)) {
                     for (ProbeConfig.TargetConfig target : targets) {
-                        if (target.getClassName().equals(clazzName)) {
-                            for (String targetMethod : target.getMethods()) {
-                                this.methodSignature2ProbeConfig.put( target.getClassName() + "." + targetMethod, config);
-                            }
+                        for (String targetMethod : target.getMethods()) {
+                            this.methodSignature2ProbeConfig.put( target.getClassName() + "." + targetMethod, config);
                         }
                     }
                 }
@@ -561,36 +581,57 @@ public class ProbeManager {
         return this.methodSignature2ProbeConfig.get(methodSignature);
     }
 
+    private static String buildMethodSignature(Class<?> clazz, ArthasMethod method) {
+        String clazzName = clazz.getName();
+        String methodName = method.getName();
+        return clazzName + "." + methodName;
+    }
+
     public List<ProbeConfig> reInitialize() {
         return initialize(true);
     }
 
-    /**
-     * 模拟探针拦截器（阶段1使用）
-     */
-    private static class MockProbeInterceptor implements ProbeInterceptor {
-        private final ProbeConfig config;
-
-        public MockProbeInterceptor(ProbeConfig config) {
-            this.config = config;
+    public Set<String> getEnableProbeMethods() {
+        if (enableProbeMethods.isEmpty()) {
+            for (ProbeConfig config : getAllProbeConfigs().values()) {
+                if (config.isEnabled()) {
+                    for (ProbeConfig.TargetConfig target : config.getTargets()) {
+                        this.enableProbeMethods.addAll(target.getMethods());
+                    }
+                }
+            }
         }
-
-        @Override
-        public String getName() {
-            return config.getName();
-        }
-
-        @Override
-        public boolean isEnabled() {
-            return config.isEnabled();
-        }
+        return this.enableProbeMethods;
     }
 
-    /**
-     * 探针拦截器接口
-     */
-    public interface ProbeInterceptor {
-        String getName();
-        boolean isEnabled();
+    public Set<String> getEnableProbeClassNames() {
+        if (enableProbeClassNames.isEmpty()) {
+            for (ProbeConfig config : getAllProbeConfigs().values()) {
+                if (config.isEnabled()) {
+                    for (ProbeConfig.TargetConfig target : config.getTargets()) {
+                        this.enableProbeClassNames.add(target.getClassName());
+                    }
+                }
+            }
+        }
+        return this.enableProbeClassNames;
+    }
+
+    public List<ProbeConfig.MetricConfig> getMetricConfigs(Class<?> clazz, ArthasMethod method) {
+        String methodSignature = buildMethodSignature(clazz, method);
+        if (methodSignature2MetricConfig.isEmpty()) {
+            for (ProbeConfig config : getAllProbeConfigs().values()) {
+                if (config.isEnabled()) {
+                    for (ProbeConfig.TargetConfig target : config.getTargets()) {
+                        for (String targetMethod : target.getMethods()) {
+                            String targetMethodSignature = target.getClassName() + "." + targetMethod;
+                            methodSignature2MetricConfig.computeIfAbsent(targetMethodSignature, k -> new ArrayList<>());
+                            methodSignature2MetricConfig.get(targetMethodSignature).addAll(config.getMetrics(targetMethodSignature));
+                        }
+                    }
+                }
+            }
+        }
+        return methodSignature2MetricConfig.get(methodSignature);
     }
 }

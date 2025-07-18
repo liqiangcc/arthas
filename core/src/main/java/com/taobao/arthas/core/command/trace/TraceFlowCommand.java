@@ -14,6 +14,7 @@ import com.taobao.middleware.cli.annotations.Summary;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * trace-flow命令 - 跟踪HTTP请求的完整执行链路
@@ -48,9 +49,12 @@ public class TraceFlowCommand extends EnhancerCommand {
     private TraceManager traceManager;
     private FilterEngine filterEngine;
     private OutputFormatter outputFormatter;
+    private Matcher methodNameMatcher;
+    private Matcher classMatcher;
 
     public TraceFlowCommand() {
-        this.probeManager = new ProbeManager();
+        System.out.println("TraceFlowCommand init");
+        this.probeManager = ProbeManager.getInstance();
         this.traceManager = TraceManager.getInstance();
         this.filterEngine = new FilterEngine(filter);
         this.outputFormatter = new OutputFormatter();
@@ -196,6 +200,8 @@ public class TraceFlowCommand extends EnhancerCommand {
         process.write("Reloading probe configurations...\n");
 
         try {
+            classMatcher = null;
+            methodNameMatcher = null;
             // 重置探针管理器状态
             probeManager.reset();
 
@@ -303,11 +309,6 @@ public class TraceFlowCommand extends EnhancerCommand {
         }
 
         try {
-            // 阶段3：验证探针配置
-            if (verbose) {
-                validateProbeConfigurations(process);
-            }
-
             // 阶段3：根据当前探针配置重新计算最大匹配类数量
             if (verbose) {
                 process.write("[DEBUG] About to calculate max matched class...\n");
@@ -336,11 +337,11 @@ public class TraceFlowCommand extends EnhancerCommand {
             if (verbose) {
                 process.write("[DEBUG] Creating matchers...\n");
                 try {
-                    Matcher classMatcher = getClassNameMatcher();
+                    this.classMatcher = getClassNameMatcher();
                     process.write("[DEBUG] Class matcher: " + (classMatcher != null ? "OK" : "NULL") + "\n");
 
-                    Matcher methodMatcher = getMethodNameMatcher();
-                    process.write("[DEBUG] Method matcher: " + (methodMatcher != null ? "OK" : "NULL") + "\n");
+                     this.methodNameMatcher = getMethodNameMatcher();
+                    process.write("[DEBUG] Method matcher: " + (methodNameMatcher != null ? "OK" : "NULL") + "\n");
                 } catch (Exception e) {
                     process.write("[DEBUG] Error creating matchers: " + e.getMessage() + "\n");
                     e.printStackTrace();
@@ -487,7 +488,12 @@ public class TraceFlowCommand extends EnhancerCommand {
     @Override
     protected Matcher getClassNameMatcher() {
         // 阶段3：基于探针配置动态生成类匹配器
-        return createProbeBasedClassMatcher();
+        if (Objects.nonNull(classMatcher)) {
+            return classMatcher;
+        }
+        Matcher probeBasedClassMatcher = createProbeBasedClassMatcher();
+        classMatcher = probeBasedClassMatcher;
+        return classMatcher;
     }
 
     @Override
@@ -499,7 +505,12 @@ public class TraceFlowCommand extends EnhancerCommand {
     @Override
     protected Matcher getMethodNameMatcher() {
         // 阶段3：基于探针配置动态生成方法匹配器
-        return createProbeBasedMethodMatcher();
+        if (Objects.nonNull(methodNameMatcher)) {
+            return methodNameMatcher;
+        }
+        new RuntimeException().printStackTrace(System.err);
+        methodNameMatcher = createProbeBasedMethodMatcher();
+        return methodNameMatcher;
     }
 
     @Override
@@ -522,8 +533,6 @@ public class TraceFlowCommand extends EnhancerCommand {
                 System.out.println("[DEBUG] About to initialize ProbeManager...");
             }
 
-
-
             if (verbose) {
                 System.out.println("[DEBUG] ProbeManager created, about to initialize probes...");
             }
@@ -537,40 +546,23 @@ public class TraceFlowCommand extends EnhancerCommand {
             // 收集所有探针的目标类
             StringBuilder classPattern = new StringBuilder();
             boolean first = true;
-
-            for (ProbeConfig config : probeManager.getAllProbeConfigs().values()) {
-                if (!config.isEnabled()) {
-                    if (verbose) {
-                        System.out.println("[DEBUG] Skipping disabled probe: " + config.getName());
-                    }
-                    continue;
+            Set<String> enableProbeClassNames = probeManager.getEnableProbeClassNames();
+            for (String orgClassName : enableProbeClassNames) {
+                if (!first) {
+                    classPattern.append("|");
                 }
+                // 转换类名为正则表达式
+                String className = orgClassName.replace(".", "\\.");
+                classPattern.append(className);
+                first = false;
 
                 if (verbose) {
-                    System.out.println("[DEBUG] Processing probe: " + config.getName());
-                }
-
-                for (ProbeConfig.MetricConfig metric : config.getMetrics()) {
-                    if (metric.getTargets() != null) {
-                        for (ProbeConfig.TargetConfig target : metric.getTargets()) {
-                            if (!first) {
-                                classPattern.append("|");
-                            }
-                            // 转换类名为正则表达式
-                            String className = target.getClassName().replace(".", "\\.");
-                            classPattern.append(className);
-                            first = false;
-
-                            if (verbose) {
-                                System.out.println("[DEBUG] Added target class: " + target.getClassName());
-                            }
-                        }
-                    }
+                    System.out.println("[DEBUG] Added target class: " + orgClassName);
                 }
             }
 
             if (classPattern.length() > 0) {
-                String pattern = "(" + classPattern.toString() + ")";
+                String pattern = "(" + classPattern + ")";
                 if (verbose) {
                     System.out.println("[DEBUG] Final class pattern: " + pattern);
                     System.out.println("[DEBUG] Pattern length: " + pattern.length());
@@ -611,40 +603,29 @@ public class TraceFlowCommand extends EnhancerCommand {
             // 收集所有探针的目标方法
             StringBuilder methodPattern = new StringBuilder();
             boolean first = true;
+            Set<String> methods = probeManager.getEnableProbeMethods();
+            for (String method : methods) {
+                if (!first) {
+                    methodPattern.append("|");
+                }
+                // 转换方法名为正则表达式
+                String methodRegex = method.replace("*", ".*");
+                methodPattern.append(methodRegex);
+                first = false;
 
-            for (ProbeConfig config : probeManager.getAllProbeConfigs().values()) {
-                if (!config.isEnabled()) continue;
-
-                for (ProbeConfig.MetricConfig metric : config.getMetrics()) {
-                    if (metric.getTargets() != null) {
-                        for (ProbeConfig.TargetConfig target : metric.getTargets()) {
-                            if (target.getMethods() != null) {
-                                for (String method : target.getMethods()) {
-                                    if (!first) {
-                                        methodPattern.append("|");
-                                    }
-                                    // 转换方法名为正则表达式
-                                    String methodRegex = method.replace("*", ".*");
-                                    methodPattern.append(methodRegex);
-                                    first = false;
-
-                                    if (verbose) {
-                                        System.out.println("[DEBUG] Added target method: " + method + " -> " + methodRegex);
-                                    }
-                                }
-                            }
-                        }
-                    }
+                if (verbose) {
+                    System.out.println("[DEBUG] Added target method: " + method + " -> " + methodRegex);
                 }
             }
-
             if (methodPattern.length() > 0) {
-                String pattern = "(" + methodPattern.toString() + ")";
+                String pattern = "(" + methodPattern + ")";
                 if (verbose) {
                     System.out.println("[DEBUG] Final method pattern: " + pattern);
                     System.out.println("[DEBUG] Pattern length: " + pattern.length());
                 }
-                return new RegexMatcher(pattern);
+                methodNameMatcher = new RegexMatcher(pattern);
+                System.out.println("[DEBUG] Final method matcher: " + methodNameMatcher + " command@" + hashCode());
+                return methodNameMatcher;
             } else {
                 if (verbose) {
                     System.out.println("[DEBUG] No target methods found in probe configurations");
@@ -667,57 +648,6 @@ public class TraceFlowCommand extends EnhancerCommand {
     }
 
     /**
-     * 验证探针配置是否正确加载（配置驱动）
-     */
-    private void validateProbeConfigurations(CommandProcess process) {
-        try {
-            probeManager.initializeProbes();
-
-            process.write("Validating probe configurations...\n");
-
-            int totalProbes = 0;
-            int enabledProbes = 0;
-            int totalTargets = 0;
-
-            for (ProbeConfig config : probeManager.getAllProbeConfigs().values()) {
-                totalProbes++;
-                if (config.isEnabled()) {
-                    enabledProbes++;
-
-                    for (ProbeConfig.MetricConfig metric : config.getMetrics()) {
-                        if (metric.getTargets() != null) {
-                            totalTargets += metric.getTargets().size();
-                        }
-                    }
-                }
-
-                if (verbose) {
-                    process.write("  - " + config.getName() + ": " +
-                                (config.isEnabled() ? "Enabled" : "Disabled") + "\n");
-                }
-            }
-
-            process.write("Total probes: " + totalProbes + "\n");
-            process.write("Enabled probes: " + enabledProbes + "\n");
-            process.write("Total target classes: " + totalTargets + "\n");
-
-            if (enabledProbes == 0) {
-                process.write("WARNING: No enabled probes found!\n");
-            }
-
-            if (totalTargets == 0) {
-                process.write("WARNING: No target classes defined in probe configurations!\n");
-            }
-
-        } catch (Exception e) {
-            process.write("Error validating probe configurations: " + e.getMessage() + "\n");
-            if (verbose) {
-                e.printStackTrace();
-            }
-        }
-    }
-
-    /**
      * 根据探针配置动态计算最大匹配类数量（配置驱动）
      */
     private int calculateMaxMatchedClassFromProbeConfig() {
@@ -728,8 +658,6 @@ public class TraceFlowCommand extends EnhancerCommand {
             if (verbose) {
                 System.out.println("[DEBUG] Calculating max matched class from probe config...");
             }
-
-            ProbeManager probeManager = new ProbeManager();
             probeManager.initializeProbes();
 
             int totalTargetClasses = 0;

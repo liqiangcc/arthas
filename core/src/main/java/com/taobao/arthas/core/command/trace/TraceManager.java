@@ -38,6 +38,7 @@ public class TraceManager {
         currentTraceId.set(traceId);
         // 初始化节点栈
         nodeStack.set(new Stack<>());
+        System.out.println("Starting trace: " + traceId);
         return traceId;
     }
 
@@ -46,6 +47,7 @@ public class TraceManager {
      */
     public void endTrace() {
         String traceId = currentTraceId.get();
+        System.out.println("endTrace called: " + traceId);
         if (traceId != null) {
             // 清理当前线程的跟踪上下文
             currentTraceId.remove();
@@ -77,21 +79,16 @@ public class TraceManager {
      * 开始一个新的跟踪节点
      */
     public TraceNode startNode(String nodeType, String methodSignature) {
+        System.out.println("startNode: " + nodeType + " " + methodSignature);
         String traceId = getCurrentTraceId();
         if (traceId == null) {
             // 如果没有活跃的trace，创建一个新的
             traceId = startTrace();
         }
 
-        TraceContext context = activeTraces.get(traceId);
-        if (context == null) {
-            return null;
-        }
         TraceNode node = new TraceNode(nodeType, methodSignature);
         node.setStartTime(System.currentTimeMillis());
         node.setThreadName(Thread.currentThread().getName());
-        // 配置驱动：记录方法调用计数
-        context.incrementMethodCallCount(methodSignature);
 
         // 处理父子关系和调用深度
         Stack<TraceNode> stack = nodeStack.get();
@@ -100,14 +97,13 @@ public class TraceManager {
             parent.addChild(node);
             node.setParent(parent);
             node.setDepth(parent.getDepth() + 1);  // 设置调用深度
-        } else {
-            // 根节点
-            context.addRootNode(node);
-            node.setDepth(0);  // 根节点深度为0
         }
 
         if (stack != null) {
             stack.push(node);
+            System.out.println("push node: " + node);
+        } else {
+            System.out.println("stack is null " );
         }
 
         return node;
@@ -120,6 +116,7 @@ public class TraceManager {
         Stack<TraceNode> stack = nodeStack.get();
         if (stack != null && !stack.isEmpty()) {
             TraceNode traceNode = stack.pop();
+            System.out.println("pop node: " + traceNode);
             traceNode.setEndTime(System.currentTimeMillis());
             return traceNode;
         }

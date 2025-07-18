@@ -1,0 +1,111 @@
+{
+  "name": "HTTP11 Processor探针",
+  "description": "监控Tomcat Http11Processor处理HTTP请求，获取完整报文",
+  "enabled": true,
+  "metrics": [
+    {
+      "name": "inputBufferEnd",
+      "description": "输入缓冲区结束位置",
+      "targets": [
+        {
+          "className": "org.apache.coyote.http11.Http11Processor",
+          "methods": ["service"]
+        }
+      ],
+      "source": "this.inputBuffer.end",
+      "type": "int",
+      "capturePoint": "before"
+    },
+    {
+      "name": "inputBufferPos",
+      "description": "输入缓冲区当前位置",
+      "targets": [
+        {
+          "className": "org.apache.coyote.http11.Http11Processor",
+          "methods": ["service"]
+        }
+      ],
+      "source": "this.inputBuffer.pos",
+      "type": "int",
+      "capturePoint": "before"
+    },
+    {
+      "name": "requestMethod",
+      "description": "HTTP请求方法",
+      "targets": [
+        {
+          "className": "org.apache.coyote.http11.Http11Processor",
+          "methods": ["service"]
+        }
+      ],
+      "source": "this.request.method",
+      "type": "string",
+      "capturePoint": "before"
+    },
+    {
+      "name": "requestURI",
+      "description": "请求URI",
+      "targets": [
+        {
+          "className": "org.apache.coyote.http11.Http11Processor",
+          "methods": ["service"]
+        }
+      ],
+      "source": "this.request.requestURI",
+      "type": "string",
+      "capturePoint": "before"
+    },
+    {
+      "name": "bufferSize",
+      "description": "缓冲区大小",
+      "targets": [
+        {
+          "className": "org.apache.coyote.http11.Http11Processor",
+          "methods": ["service"]
+        }
+      ],
+      "source": "this.inputBuffer.buf.length",
+      "type": "int",
+      "capturePoint": "before"
+    },
+    {
+      "name": "headerLength",
+      "description": "HTTP头部长度",
+      "formula": "metrics.inputBufferEnd - metrics.inputBufferPos",
+      "type": "int"
+    },
+    {
+      "name": "startTime",
+      "description": "处理开始时间",
+      "source": "startTime",
+      "type": "long",
+      "unit": "milliseconds",
+      "capturePoint": "before"
+    },
+    {
+      "name": "endTime",
+      "description": "处理结束时间",
+      "source": "endTime",
+      "type": "long",
+      "unit": "milliseconds",
+      "capturePoint": "after"
+    },
+    {
+      "name": "executionTime",
+      "description": "处理耗时",
+      "formula": "metrics.endTime - metrics.startTime",
+      "type": "long",
+      "unit": "milliseconds"
+    }
+  ],
+  "output": {
+    "type": "HTTP11_PROCESSOR",
+    "template": "[HTTP11] ${requestMethod} ${requestURI} - Buffer: ${inputBufferPos}-${inputBufferEnd} (${headerLength}B) - Time: ${executionTime}ms"
+  },
+  "filters": [
+    {
+      "name": "排除OPTIONS请求",
+      "condition": "requestMethod != 'OPTIONS'"
+    }
+  ]
+}

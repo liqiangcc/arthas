@@ -12,11 +12,32 @@ import java.util.regex.Pattern;
  */
 public class SourceExpressionParser {
 
+    private final OgnlSourceExpressionParser ognlParser = new OgnlSourceExpressionParser();
+    private final boolean useOgnl;
+
+    // 正则表达式模式
     private static final Pattern BUILTIN_VARIABLE_PATTERN = Pattern.compile("^(startTime|endTime|executionTime|threadName)$");
     private static final Pattern THIS_METHOD_PATTERN = Pattern.compile("^this\\.([a-zA-Z_][a-zA-Z0-9_]*)\\(\\)$");
+    private static final Pattern THIS_FIELD_PATTERN = Pattern.compile("^this\\.([a-zA-Z_][a-zA-Z0-9_.]+)$");
     private static final Pattern ARGS_ACCESS_PATTERN = Pattern.compile("^args\\[(\\d+)\\](?:\\.([a-zA-Z_][a-zA-Z0-9_]*)\\(\\))?$");
+    private static final Pattern ARGS_METHOD_WITH_PARAMS_PATTERN = Pattern.compile("^args\\[(\\d+)\\]\\.([a-zA-Z_][a-zA-Z0-9_]*)\\(\"([^\"]*?)\"\\)$");
     private static final Pattern RETURN_VALUE_PATTERN = Pattern.compile("^returnValue(?:\\.([a-zA-Z_][a-zA-Z0-9_]*)\\(\\))?$");
-    
+
+    /**
+     * 默认构造函数，启用OGNL支持
+     */
+    public SourceExpressionParser() {
+        this(true);
+    }
+
+    /**
+     * 构造函数
+     * @param useOgnl 是否使用OGNL表达式解析器
+     */
+    public SourceExpressionParser(boolean useOgnl) {
+        this.useOgnl = useOgnl;
+    }
+
     /**
      * 解析source表达式
      * 
@@ -26,14 +47,52 @@ public class SourceExpressionParser {
      */
     public Object parse(String expression, ExecutionContext context) {
         if (expression == null || expression.trim().isEmpty()) {
-            throw new IllegalArgumentException("表达式不能为空");
+            return null;
         }
 
         String trimmedExpression = expression.trim();
 
-        try {
-            // 阶段2：支持多种表达式类型
+        // 传统解析失败，尝试OGNL
+        return ognlParser.parse(trimmedExpression, context);
+    }
 
+    /**
+     * 判断是否为复杂表达式（需要OGNL处理）
+     */
+    private boolean isComplexExpression(String expression) {
+        // 包含运算符
+        if (expression.contains("+") || expression.contains("-") || expression.contains("*") || expression.contains("/")) {
+            return true;
+        }
+        // 包含条件表达式
+        if (expression.contains("?") || expression.contains(":")) {
+            return true;
+        }
+        // 包含比较操作
+        if (expression.contains("==") || expression.contains("!=") || expression.contains(">=") || expression.contains("<=")) {
+            return true;
+        }
+        // 包含逻辑操作
+        if (expression.contains("&&") || expression.contains("||") || expression.contains("!")) {
+            return true;
+        }
+        // 包含集合操作
+        if (expression.contains(".size()") || expression.contains(".length()") || expression.contains("[")) {
+            return true;
+        }
+        // 包含方法调用且带参数（除了简单的字符串参数）
+        if (expression.matches(".*\\([^\"]*[,\\(].*\\).*")) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * 传统表达式解析
+     */
+    private Object parseTraditional(String trimmedExpression, ExecutionContext context) {
+        try {
             // 1. 内置变量
             if (BUILTIN_VARIABLE_PATTERN.matcher(trimmedExpression).matches()) {
                 return parseBuiltinVariable(trimmedExpression, context);
@@ -45,7 +104,22 @@ public class SourceExpressionParser {
                 return parseThisMethodCall(thisMatcher.group(1), context);
             }
 
-            // 3. args[n] 或 args[n].method() 访问
+            // 3. this.field 或 this.field.subfield 字段访问
+            Matcher thisFieldMatcher = THIS_FIELD_PATTERN.matcher(trimmedExpression);
+            if (thisFieldMatcher.matches()) {
+                return parseThisFieldAccess(thisFieldMatcher.group(1), context);
+            }
+
+            // 4. args[n].method("param") 带参数方法调用
+            Matcher argsMethodWithParamsMatcher = ARGS_METHOD_WITH_PARAMS_PATTERN.matcher(trimmedExpression);
+            if (argsMethodWithParamsMatcher.matches()) {
+                int index = Integer.parseInt(argsMethodWithParamsMatcher.group(1));
+                String methodName = argsMethodWithParamsMatcher.group(2);
+                String param = argsMethodWithParamsMatcher.group(3);
+                return parseArgsMethodWithParams(index, methodName, param, context);
+            }
+
+            // 5. args[n] 或 args[n].method() 访问
             Matcher argsMatcher = ARGS_ACCESS_PATTERN.matcher(trimmedExpression);
             if (argsMatcher.matches()) {
                 int index = Integer.parseInt(argsMatcher.group(1));
@@ -53,23 +127,19 @@ public class SourceExpressionParser {
                 return parseArgsAccess(index, methodName, context);
             }
 
-            // 4. returnValue 或 returnValue.method() 访问
+            // 6. returnValue 或 returnValue.method() 访问
             Matcher returnMatcher = RETURN_VALUE_PATTERN.matcher(trimmedExpression);
             if (returnMatcher.matches()) {
                 String methodName = returnMatcher.group(1);
                 return parseReturnValueAccess(methodName, context);
             }
 
-            // 不支持的表达式
-            throw new UnsupportedOperationException("不支持的表达式: " + expression +
-                    "\n支持的表达式类型:" +
-                    "\n  - 内置变量: startTime, endTime, executionTime, threadName" +
-                    "\n  - this方法调用: this.methodName()" +
-                    "\n  - 参数访问: args[n] 或 args[n].methodName()" +
-                    "\n  - 返回值访问: returnValue 或 returnValue.methodName()");
+            // 传统解析失败，返回null
+            return null;
 
         } catch (Exception e) {
-            throw new SourceExpressionException("解析表达式失败: " + expression, e);
+            System.err.println("传统表达式解析失败: " + trimmedExpression + ", 错误: " + e.getMessage());
+            return null;
         }
     }
 
@@ -105,6 +175,96 @@ public class SourceExpressionParser {
             return method.invoke(target);
         } catch (Exception e) {
             System.err.println("调用this." + methodName + "()失败: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 解析this.field或this.field.subfield字段访问
+     */
+    private Object parseThisFieldAccess(String fieldPath, ExecutionContext context) {
+        Object target = context.getTarget();
+        if (target == null) {
+            return null;
+        }
+
+        try {
+            return getNestedFieldValue(target, fieldPath);
+        } catch (Exception e) {
+            System.err.println("访问this." + fieldPath + "失败: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 获取嵌套字段值
+     * 支持 field.subfield.subsubfield 这样的路径
+     */
+    private Object getNestedFieldValue(Object obj, String fieldPath) throws Exception {
+        if (obj == null || fieldPath == null || fieldPath.isEmpty()) {
+            return null;
+        }
+
+        String[] fieldNames = fieldPath.split("\\.");
+        Object current = obj;
+
+        for (String fieldName : fieldNames) {
+            if (current == null) {
+                return null;
+            }
+
+            // 尝试通过反射获取字段
+            current = getFieldValue(current, fieldName);
+        }
+
+        return current;
+    }
+
+    /**
+     * 通过反射获取字段值
+     */
+    private Object getFieldValue(Object obj, String fieldName) throws Exception {
+        if (obj == null) {
+            return null;
+        }
+
+        Class<?> clazz = obj.getClass();
+
+        // 尝试从当前类开始查找字段
+        while (clazz != null) {
+            try {
+                java.lang.reflect.Field field = clazz.getDeclaredField(fieldName);
+                field.setAccessible(true);
+                return field.get(obj);
+            } catch (NoSuchFieldException e) {
+                // 在父类中继续查找
+                clazz = clazz.getSuperclass();
+            }
+        }
+
+        throw new NoSuchFieldException("字段 '" + fieldName + "' 在类 " + obj.getClass().getName() + " 中未找到");
+    }
+
+    /**
+     * 解析args[n].method("param")带参数方法调用
+     */
+    private Object parseArgsMethodWithParams(int index, String methodName, String param, ExecutionContext context) {
+        Object[] args = context.getArgs();
+        if (args == null || index >= args.length) {
+            return null;
+        }
+
+        Object arg = args[index];
+        if (arg == null) {
+            return null;
+        }
+
+        // 调用带字符串参数的方法
+        try {
+            Method method = arg.getClass().getMethod(methodName, String.class);
+            return method.invoke(arg, param);
+        } catch (Exception e) {
+            System.err.println("调用args[" + index + "]." + methodName + "(\"" + param + "\")失败: " + e.getMessage());
             return null;
         }
     }

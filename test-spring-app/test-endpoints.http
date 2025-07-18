@@ -46,13 +46,13 @@ Accept: application/json
 ### ===========================================
 
 ### 6. 获取所有用户
-GET http://localhost:8080/api/users
+GET http://localhost:8080/api/test/users
 Accept: application/json
 
 ###
 
 ### 7. 创建新用户
-POST http://localhost:8080/api/users
+POST http://localhost:8080/api/test/users
 Content-Type: application/json
 
 {
@@ -115,3 +115,14 @@ GET http://localhost:8080/api/test/complex
 Accept: application/json
 
 ###
+POST http://localhost:8080/api/test/users
+Content-Type: application/json
+User-Agent: IntelliJ HTTP Client/IntelliJ IDEA 2025.11
+Accept-Encoding: br, deflate, gzip, x-gzip
+Accept: */*
+
+{
+  "name": "Test User",
+  "email": "test@example.com",
+  "phone": "1234567890"
+}

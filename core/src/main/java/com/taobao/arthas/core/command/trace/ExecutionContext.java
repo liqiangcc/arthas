@@ -1,12 +1,8 @@
 package com.taobao.arthas.core.command.trace;
 
-import com.taobao.arthas.core.util.LogUtil;
-import com.taobao.arthas.core.util.StringUtils;
-
 import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 执行上下文 - 存储方法执行过程中的所有相关信息
