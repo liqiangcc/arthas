@@ -21,6 +21,7 @@ public class TraceFlowEnhancerAdviceListener extends AdviceListenerAdapter {
     private final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
     private final TraceManager traceManager;
     private final ProbeManager probeManager;
+    private ExecutionContext context;
 
     public TraceFlowEnhancerAdviceListener(TraceFlowCommand command, CommandProcess process, TraceManager traceManager,ProbeManager probeManager) {
         this.command = command;
@@ -62,6 +63,9 @@ public class TraceFlowEnhancerAdviceListener extends AdviceListenerAdapter {
 
     private void after(ClassLoader loader, Class<?> clazz, ArthasMethod method, Object target, Object[] args , Object returnObject,Throwable throwable) {
         System.out.println("[DEBUG] after called for: " + clazz.getName() + "." + method.getName());
+        if (Objects.nonNull(throwable)) {
+            throwable.printStackTrace();
+        }
         TraceNode node = traceManager.finishedNode();
         System.out.println("[DEBUG] node: " + node);
         if (node != null) {
@@ -79,29 +83,31 @@ public class TraceFlowEnhancerAdviceListener extends AdviceListenerAdapter {
                 traceManager.endTrace();
                 return;
             }
-            if (command.isVerbose()) {
-                System.out.println("[DEBUG] filtered: " + filtered + " node: " + JSONObject.toJSONString(node));
-            }
             // 基于nodeStack的出口判断：检查是否是trace的根节点
             boolean isTraceRoot = isTraceRootNode(node);
-            if (command.isVerbose()) {
-                process.write("[DEBUG] isTraceRoot: " + isTraceRoot + " node: " + JSONObject.toJSONString(node));
-            }
             if (isTraceRoot) {
                 if (command.isVerbose()) {
                     process.write("[DEBUG] Trace root exit detected, outputting tree trace for: " + node.getMethodSignature() + "\n");
                 }
-                node.setAttribute(command.getFilter(), true);
+                if (Objects.nonNull(command.getFilter())) {
+                    node.setAttribute(command.getFilter(), true);
+                }
                 // 输出完整的树状trace结果
                 outputTreeTrace(node);
                 traceManager.endTrace();
+                this.clearOnFinished();
                 // 完整的trace结束，增加计数
                 int count = process.times().incrementAndGet();
-                if (isLimitExceeded(count, command.getCount())) {
-                    abortProcess(process, command.getCount() != null ? command.getCount() : 1);
+                Integer limit = command.getCount();
+                if (isLimitExceeded(limit,count)) {
+                    abortProcess(process, limit);
                 }
             }
         }
+    }
+
+    private void clearOnFinished() {
+        this.context = null;
     }
 
     private void populateNodeMeritsAtAfter(TraceNode node, ClassLoader loader, Class<?> clazz, ArthasMethod method, Object target, Object[] args, Object returnObject, Throwable throwable) {
@@ -116,7 +122,6 @@ public class TraceFlowEnhancerAdviceListener extends AdviceListenerAdapter {
     private boolean filter(TraceNode node) {
         FilterEngine filterEngine = command.getFilterEngine();
         boolean result = filterEngine.matches(node.getAttributes());
-        System.out.println("[DEBUG] filtered: " + result + " node: " + JSONObject.toJSONString(node));
         return result;
     }
 
@@ -176,9 +181,7 @@ public class TraceFlowEnhancerAdviceListener extends AdviceListenerAdapter {
      * 递归构建树状输出
      */
     private void buildTreeOutput(java.util.List<TraceNode> nodes, StringBuilder output, String prefix, boolean isRoot) {
-        System.out.println("[DEBUG] nodes: " + JSONObject.toJSONString(nodes));
         if (nodes == null || nodes.isEmpty()) {
-
             return;
         }
 
@@ -252,13 +255,21 @@ public class TraceFlowEnhancerAdviceListener extends AdviceListenerAdapter {
         }
     }
 
-    private static void populateNodeMerits(TraceNode node, ProbeConfig config, Object target, Object[] args, Object returnObject, List<ProbeConfig.MetricConfig> metrics) {
+    private  void populateNodeMerits(TraceNode node, ProbeConfig config, Object target, Object[] args, Object returnObject, List<ProbeConfig.MetricConfig> metrics) {
         System.out.println(node.getMethodSignature() + " metrics: " + metrics);
         if (metrics == null || metrics.isEmpty()) {
             System.out.println("No metrics found for method signature: " + node.getMethodSignature());
             System.out.println("config: " + JSONObject.toJSONString(config));
             return;
         }
+        if (this.context == null) {
+            this.context = new ExecutionContext(target, args, null);
+        }
+        context.setReturnValue(returnObject);
+        context.setException(context.getException());
+        context.setTarget(target);
+        context.setArgs(args);
+        context.setMethodSignature(node.getMethodSignature());
         for (ProbeConfig.MetricConfig metric : metrics) {
             System.out.println("metric: " + metric + " node.getMethodSignature(): " + node.getMethodSignature());
             String metricName = metric.getName();
@@ -266,14 +277,12 @@ public class TraceFlowEnhancerAdviceListener extends AdviceListenerAdapter {
             if (source != null && !source.isEmpty()) {
                 // 使用SourceExpressionParser解析source表达式
                 SourceExpressionParser sourceExpressionParser = new SourceExpressionParser();
-                ExecutionContext context = new ExecutionContext(target, args, null);
-                context.setReturnValue(returnObject);
-                context.setException(context.getException());
                 System.out.println(node.getMethodSignature() + " source: " + source);
                 Object parseValue = sourceExpressionParser.parse(source, context);
                 System.out.println("metricName: " + metricName + " source: " + source + ", parseValue: " + parseValue);
                 if (parseValue != null) {
                     node.setAttribute(metricName, parseValue);
+                    context.addMetric(metricName, parseValue);
                 }
             }
         }
@@ -311,7 +320,6 @@ public class TraceFlowEnhancerAdviceListener extends AdviceListenerAdapter {
      * 根节点是trace的入口点，也是最后一个退出的节点
      */
     private boolean isTraceRootNode(TraceNode node) {
-        System.out.println("isTraceRootNode: " + JSONObject.toJSONString(node));
         if (node == null) {
             return false;
         }

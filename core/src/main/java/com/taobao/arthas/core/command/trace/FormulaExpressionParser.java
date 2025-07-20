@@ -10,7 +10,7 @@ import java.util.regex.Pattern;
 public class FormulaExpressionParser {
 
     // 匹配 metrics.xxx 的模式
-    private static final Pattern METRIC_REFERENCE_PATTERN = Pattern.compile("metrics\\.([a-zA-Z_][a-zA-Z0-9_]*)");
+    private static final Pattern METRIC_REFERENCE_PATTERN = Pattern.compile("metrics\\.([a-zA-Z_-][a-zA-Z0-9_-]*)");
     
     /**
      * 解析formula表达式

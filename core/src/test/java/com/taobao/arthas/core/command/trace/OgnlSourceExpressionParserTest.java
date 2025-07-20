@@ -40,8 +40,14 @@ public class OgnlSourceExpressionParserTest {
         context.setThreadName(Thread.currentThread().getName());
         context.addMetric("content-length", 81);
         context.addMetric("head-length", 219);
+        context.addMetric("request-bytes", "http request".getBytes());
     }
 
+    @Test
+    void test() {
+        Object result = parser.parse("targetObject.inputBuffer.end", context);
+        assertEquals(1024, result);
+    }
     @Test
     @DisplayName("测试基本字段访问")
     void testBasicFieldAccess() {
@@ -73,8 +79,8 @@ public class OgnlSourceExpressionParserTest {
     @Test
     @DisplayName("复制表达式")
     void testExpression() {
-        Object result = parser.parse("#v1 = metrics.get(\"head-length\")," +
-                "#v2 = metrics.get(\"content-length\"),#v3=#v1 + #v2,#v5=inputBuffer.getByteBuffer().hb,v4=new String(#v5,0,#v3)", context);
+        Object result = parser.parse("#v1 = metrics.get(\"request-bytes\")," +
+                "\n + new String(#v1,0,5)", context);
         System.out.println(result);
     }
 

@@ -48,6 +48,30 @@
       "source": "targetObject.inputBuffer.end",
       "type": "int",
       "capturePoint": "after"
+    },
+    {
+      "targetId": "org.apache.coyote.http11.Http11Processor.service",
+      "name": "request-length",
+      "description": "request-length",
+      "source": "#v1=metrics.get(\"header-length\"),#v2=metrics.get(\"content-length\"),#v3=@Integer@parseInt(#v1),#v4=@Integer@parseInt(#v2),#v3 + #v4",
+      "type": "int",
+      "capturePoint": "after"
+    },
+    {
+      "targetId": "org.apache.coyote.http11.Http11Processor.service",
+      "name": "request",
+      "description": "request-bytes",
+      "source": "#v1=targetObject.inputBuffer.byteBuffer.hb,#v2=metrics.get(\"request-length\"), \"\\n\" + new String(#v1,0,#v2)",
+      "type": "String",
+      "capturePoint": "after"
+    },
+    {
+      "targetId": "org.apache.coyote.http11.Http11Processor.service",
+      "name": "code",
+      "description": "response-code",
+      "source": "#v1=targetObject.response,#v2=#v1.getStatus()",
+      "type": "String",
+      "capturePoint": "after"
     }
   ],
   "output": {
